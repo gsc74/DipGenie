@@ -21,7 +21,7 @@ if len(sys.argv) > 1:
     args = parser.parse_args()
     nbatches = args.batches
 else:
-    print("Usage: preprocess.py -b <number of threads>")
+    print("Usage: run.py -b <number of batches>")
     sys.exit(0)
 
 running_threads = max_threads // nbatches
@@ -51,14 +51,16 @@ def par_run_PanGenie(read_cov_pair):
     # Source the bashrc file, run PanGenie, and append edit distance to the log
     cmd = (
         f"source ~/.bashrc && "
-        f"PanGenie -i {downsampled_read} -r {ref_file} -v {vcf_file} -o {temp_dir}/{read}_PG -t{running_threads} > {log_file} 2>&1 && "
+        f"PanGenie -i {downsampled_read} -r {ref_file} -v {vcf_file} -o {temp_dir}/{read}_PG -t {running_threads} > {log_file} 2>&1 && "
         f"bgzip {temp_dir}/{read}_PG_genotyping.vcf && "
         f"tabix -p vcf {temp_dir}/{read}_PG_genotyping.vcf.gz && "
-        f"bcftools view -e 'GT=\"het\"' {temp_dir}/{read}_PG_genotyping.vcf.gz | bgzip > {temp_dir}/{read}_PG_genotyping_no_homo.vcf.gz && "
-        f"tabix -p vcf {temp_dir}/{read}_PG_genotyping_no_homo.vcf.gz && "
-        f"bcftools consensus -f {ref_file} -o {output_prefix}.fa {temp_dir}/{read}_PG_genotyping_no_homo.vcf.gz && "
+        f"total=$(bcftools view -H {temp_dir}/{read}_PG_genotyping.vcf.gz | wc -l); homo=$(bcftools view -i 'GT=\"hom\"' {temp_dir}/{read}_PG_genotyping.vcf.gz | wc -l); het=$((total - homo)); echo \"Total variants: $total, Homozygous variants: $homo, Heterozygous variants: $het\" >> {log_file} && "
+        f"bcftools view -i 'GT=\"hom\"' {temp_dir}/{read}_PG_genotyping.vcf.gz | bgzip > {temp_dir}/{read}_PG_genotyping_no_het.vcf.gz && "
+        f"tabix -p vcf {temp_dir}/{read}_PG_genotyping_no_het.vcf.gz && "
+        f"bcftools consensus -f {ref_file} -o {output_prefix}.fa {temp_dir}/{read}_PG_genotyping_no_het.vcf.gz && "
         f"edlib-aligner {ground_truth} {output_prefix}.fa >> {log_file}"
     )
+
 
     os.system(cmd)
 

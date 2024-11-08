@@ -9,53 +9,78 @@
 
 ### Prerequisites
 
-#### Before using PHI, ensure you have the following dependencies installed:
+Before using PHI, please ensure that **Miniforge** is installed: [Miniforge Installation Guide](https://github.com/conda-forge/miniforge). This package installer is used for installing a few dependencies such as VG and samtools. To run PHI, you also need a Gurobi license. You can get a free academic license [here](https://www.gurobi.com/academia/academic-program-and-licenses/). You should download and save `gurobi.lic` file in your home directory.
 
-1. **GCC 9 or later** - [GCC](https://gcc.gnu.org/)
-2. **Zlib** - [zlib](https://zlib.net/)
-3. **Gurobi** - [Gurobi](https://www.gurobi.com)
-4. **VG Toolkit** - [vg](https://github.com/vgteam/vg)
-5. **GBWTGraph** - [gfa2gbwt](https://github.com/jltsiren/gbwtgraph)
-
-### Get PHI
+## <a name="get_phi"></a>Get PHI
 
 ```bash
-git clone https://github.com/gsc74/PHI
+git clone https://github.com/at-cg/PHI
 cd PHI
-make GUROBI_HOME=/path/to/gurobo_home (i.e. /opt/gurobi1101/linux64)
+# Install dependencies (Miniforge is required)
+./Installdeps
+export PATH="$(pwd)/extra/bin:$PATH"
+export LD_LIBRARY_PATH="$(pwd)/extra/lib:$LD_LIBRARY_PATH"
+make
 
-# test run with ILP
-./PHI -t32 -q0 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o CHM13.fa
+# test run 
+./PHI -t32 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o CHM13.fa
 
-# test run with IQP (default)
-./PHI -t32 -q1 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o CHM13.fa
-
-# test run with MILP
-./PHI -t32 -q0 -m1 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o CHM13.fa
-
-# test run with MIQP (default)
-./PHI -t32 -q1 -m1 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o CHM13.fa
-
-# test run with vcf and reference
-./vcf2gfa.py -v test/MHC_4.vcf.gz -r test/MHC-CHM13.0.fa.gz | gzip > test/MHC_4_vcf.gfa.gz
+# test run with VCF file as input
+./vcf2gfa.py -v test/MHC_4.vcf.gz -r test/MHC-CHM13.0.fa.gz | bgzip > test/MHC_4_vcf.gfa.gz
 ./PHI -t32 -g test/MHC_4_vcf.gfa.gz -r test/CHM13_reads.fq.gz -o CHM13.fa
 ```
 
-## Description
-PHI is a tool designed to reconstruct haploid haplotypes from low-coverage short reads using a haplotype-aware pangenome graph represented as a Directed Acyclic Graph (DAG). Additionally, a VCF file and a reference genome against which the VCF was built can be used with the script `vcf2gfa.py` to generate a pangenome graph as input. PHI uses short reads to reconstruct haploid haplotypes through two methods:
+#### Adding Binary and Library Paths to `.bashrc`
+To ensure that the `extra/bin` and `extra/lib` directories are automatically loaded for every terminal session, you can export them to your `~/.bashrc`. This will make sure the required binaries and libraries for `PHI` are available.
 
-1. **Integer Linear Programming (ILP)**: Enabled by passing the `-q0` flag, this uses an ILP-based formulation.
-2. **Integer Quadratic Programming (IQP)**: Enabled by passing the `-q1` flag, this is the default method and uses an IQP-based formulation.
-3. **Mixed Integer Linear Programming (MILP)**: Enabled by passing the `-q0 -m0` flag, this uses an MILP-based formulation.
-4. **Mixed Integer Quadratic Programming (MIQP)**: Enabled by passing the `-q1 -m1` flag, this uses an MIQP-based formulation.
+```bash
+# Add extra/bin and extra/lib to .bashrc
+echo 'export PATH="$(pwd)/extra/bin:$PATH"' >> ~/.bashrc
+echo 'export LD_LIBRARY_PATH="$(pwd)/extra/lib:$LD_LIBRARY_PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
 
-The details of these formulations are described in our [paper](#publications).
+## Table of Contents
 
-## Results
-(Results will be added later)
+- [Getting Started](#started)
+- [Get PHI](#get_phi)
+- [Introduction](#intro)
+- [Results](#results)
+- [Future work](#future)
+- [Publications](#pub)
 
-## Future Work
-1. We plan to add support for diploid haplotype reconstruction.
+## <a name="intro"></a>Introduction
+PHI is a pangenome-based genotyping method. It estimates complete haplotype sequence from low-coverage sequencing data (short-reads or long-reads of a haploid genome). Users should provide a pangenome graph reference in either:
+- Graph Format ([GFA v1.1](http://gfa-spec.github.io/GFA-spec/GFA1.html#gfa-11)): A sequence graph-based representation of the pangenome graph. Graph should be acyclic.
+- Variant Call Format ([VCF](https://samtools.github.io/hts-specs/VCFv4.2.pdf)): A list of multi-sample, multi-allelic phased variants along with a reference genome.
 
-## Publications
-(To be added)
+Output of PHI is the haplotype sequence (FASTA) associated with the optimal inferred path from the graph. It identifies a path in the pangenome graph that maximizes the matches between the path and read k-mers while minimizing recombination events (haplotype switches) along the path. We implemented integer programming to compute an optimal solution. The integer program is solved optimally using the [Gurobi optimizer](https://www.gurobi.com). Details of these formulations are described in our [paper](#publications).
+
+
+## <a name="results"></a>Results
+We benchmarked PHI (v1.0) using short-read datasets sampled from MHC sequences of five haplotypes (APD, DBB, MANN, QBL, and SSTO). This data was generated by [Houwaart et al. (2022)](https://doi.org/10.1111/tan.15020). These datasets were downsampled to various coverages ranging from 0.1x to 10x. We built a pangenome graph using [Minigraph-Cactus](https://github.com/ComparativeGenomicsToolkit/cactus/tree/master), comprising 49 complete [MHC sequences](https://doi.org/10.5281/zenodo.6617246). To assess the accuracy of PHI, we evaluated the edit distance between the inferred haplotype sequences and the MHC sequences from Houwaart et al. that were determined using de novo assembly and curation.
+
+<p align="center" id="F1-score">
+    <img src="data/edit_distances.jpg" width="700" alt="F1-score"/>
+</p>
+
+> Edit distance between ground-truth haplotype sequences and the sequences estimated by different tools (PHI, VG, and PanGenie). Lower edit distance implies higher accuracy. PHI provides advangate over existing methods on low-coverage inputs.
+
+In PHI, we have implemented two integer programs (referred to as ILP and IQP respectively). They both solve the same problem, but differ in terms of their runtime and memory-usage. IQP is generally faster but it requires more memory. Users can select between the two using command line argument (see `./PHI -h`).
+
+<p align="center" id="F1-score">
+    <img src="data/phi_vs_phi_ilp.jpg" width="700" alt="F1-score"/>
+</p>
+
+> Performance comparison between ILP and IQP. 
+
+The scripts to reproduce the results are available [here](data).
+
+
+## <a name="future"></a>Future Work
+- Add support for diploid haplotype estimation.
+- Scale to pangenome graphs having larger number of genomes.
+
+
+## <a name="pub"></a>Publications
+- **Ghanshyam Chandra, Md Helal Hossen, Stephan Scholz, Alexander T Dilthey, Daniel Gibney and Chirag Jain**. "[Integer programming framework for pangenome-based genome inference](https://www.biorxiv.org/)". *bioRxiv* 2024.
