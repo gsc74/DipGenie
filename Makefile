@@ -20,4 +20,4 @@ $(src_dir)/%.o: $(src_dir)/%.cpp
 	$(CXX) -c $< -o $@ $(INLCLUDES) $(LIBS) $(CXXFLAGS)
 
 clean:
-	rm -f $(src_dir)/*.o PHI
+	rm -f $(src_dir)/*.o PHI2
