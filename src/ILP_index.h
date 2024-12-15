@@ -79,6 +79,8 @@ class ILP_index {
         int32_t is_naive_exp;
         float threshold;
         float is_mixed;
+        int32_t ploidy;
+        bool is_low_cov;
 
         // Constructor
         ILP_index(gfa_t *g);	// This is constructor

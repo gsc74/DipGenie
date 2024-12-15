@@ -791,7 +791,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
             fprintf(stderr, "[M::%s::%.3f*%.2f] ILP model started\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0));
 
             // Loop over h = {1, 2}
-            for (int h = 1; h <= 2; ++h) {
+            for (int h = 1; h <= ploidy; ++h) {
                 vars[h] = std::map<std::string, GRBVar>();
                 Zvars_h[h] = std::map<int32_t, GRBVar>();
 
@@ -839,7 +839,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
                         GRBVar z_var_r = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, z_var_h);
                         Zvars_h[h][i] = z_var_r;
                         model.addConstr(z_expr_h == z_var_r, "Z_constraint_" + std::to_string(i) + "_" + std::to_string(h));
-                        count_kmer_matches++;
+                        if (h==1) count_kmer_matches++;
                     }
                 }
             }
@@ -848,14 +848,14 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
         {
             fprintf(stderr, "[M::%s::%.3f*%.2f] QP model started\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0));
             // Loop over h = {1, 2}
-            for (int h = 1; h <= 2; ++h) {
+            for (int h = 1; h <= ploidy; ++h) {
                 vars[h] = std::map<std::string, GRBVar>();
                 Zvars_h[h] = std::map<int32_t, GRBVar>();
 
                 // K-mer constraints for graph h
                 for (int32_t i = 0; i < count_sp_r; i++) {
                     GRBQuadExpr kmer_expr;
-                    GRBLinExpr z_expr;
+                    GRBLinExpr z_expr_h;
                     int32_t temp = 0;
 
                     for (int32_t j = 0; j < num_walks; j++) {
@@ -883,7 +883,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
                                 kmer_expr += vars[h][var_name] * kmer_expr_var;
                             }
 
-                            z_expr += kmer_expr_var;
+                            z_expr_h += kmer_expr_var;
                             temp += 1;
                         }
                     }
@@ -895,8 +895,8 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
                         GRBVar z_var_r = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, z_var_h);
                         Zvars_h[h][i] = z_var_r;
                         model.addQConstr(kmer_expr == kmer_weight * z_var_r, constraint_name);
-                        model.addConstr(z_expr == z_var_r, "Z_constraint_" + std::to_string(i) + "_" + std::to_string(h));
-                        count_kmer_matches++;
+                        model.addConstr(z_expr_h == z_var_r, "Z_constraint_" + std::to_string(i) + "_" + std::to_string(h));
+                        if (h==1) count_kmer_matches++;
                     }
                 }
             }
@@ -904,7 +904,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
 
         // Combine Zvars_h[1][i] and Zvars_h[2][i] to create Zvars[i]
         std::set<int32_t> z_indices;
-        for (int h = 1; h <= 2; ++h) {
+        for (int h = 1; h <= ploidy; ++h) {
             for (const auto& z_pair : Zvars_h[h]) {
                 z_indices.insert(z_pair.first);
             }
@@ -916,14 +916,29 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
             Zvars[i] = z_var_r;
 
             GRBLinExpr sum_expr;
-            if (Zvars_h[1].find(i) != Zvars_h[1].end()) {
-                sum_expr += Zvars_h[1][i];
-            }
-            if (Zvars_h[2].find(i) != Zvars_h[2].end()) {
-                sum_expr += Zvars_h[2][i];
+            for (int h = 1; h <= ploidy; ++h) {
+                if (Zvars_h[h].find(i) != Zvars_h[h].end()) {
+                    sum_expr += Zvars_h[h][i];
+                }
             }
 
-            model.addConstr(sum_expr >= Zvars[i], "Z_constraint_" + std::to_string(i));
+            // if (Zvars_h[1].find(i) != Zvars_h[1].end()) {
+            //     sum_expr += Zvars_h[1][i];
+            //     // z_expr += (1 - Zvars_h[1][i]);
+            // }
+            // if (Zvars_h[2].find(i) != Zvars_h[2].end()) {
+            //     sum_expr += Zvars_h[2][i];
+            //     // z_expr += (1 - Zvars_h[2][i]);
+            // }
+
+            if (is_low_cov)
+            {
+                model.addConstr(sum_expr >= Zvars[i], "Z_constraint_" + std::to_string(i)); // z_1 + z_2 >= z (Pick only one of these)
+            }else
+            {
+                model.addConstr(sum_expr == Zvars[i], "Z_constraint_" + std::to_string(i)); // z_1 + z_2 == z (Pick only one of these)
+            }
+            
         }
 
         // Include the z_vars into the objective function
@@ -954,7 +969,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
         }
 
         // Continue with the main model construction
-        for (int h = 1; h <= 2; ++h) {
+        for (int h = 1; h <= ploidy; ++h) {
             // Initialize adjacency lists and expressions for each h
             std::map<std::string, std::vector<std::string>> new_adj;
             GRBLinExpr start_expr;
@@ -1172,20 +1187,31 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
             in_nodes_new.clear();
         }
 
-        // Add phasing constraints
-        std::set<std::string> common_var_names;
-        for (const auto& var_pair : vars[1]) {
-            if (vars[2].find(var_pair.first) != vars[2].end()) {
-                common_var_names.insert(var_pair.first);
+         if (ploidy == 2)
+         {
+            // Add phasing constraints
+            std::set<std::string> common_var_names;
+            for (const auto& var_pair : vars[1]) {
+                if (vars[2].find(var_pair.first) != vars[2].end()) {
+                    common_var_names.insert(var_pair.first);
+                }
             }
-        }
 
-        // For each common variable, add the phasing constraint vars[1][var_name] + vars[2][var_name] <= 1
-        for (const auto& var_name : common_var_names) {
-            GRBVar var1 = vars[1][var_name];
-            GRBVar var2 = vars[2][var_name];
-            model.addConstr(var1 + var2 <= 1, "Phasing_constraint_" + var_name);
-        }
+            if (is_low_cov)
+            {
+                fprintf(stderr, "[M::%s::%.3f*%.2f] Low coverage model started\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0));
+                // // For each common variable, add the phasing constraint vars[1][var_name] + vars[2][var_name] <= 1
+                for (const auto& var_name : common_var_names) {
+                    GRBVar var1 = vars[1][var_name];
+                    GRBVar var2 = vars[2][var_name];
+                    model.addConstr(var1 + var2 <= 1, "Phasing_constraint_" + var_name); // either pick var1 or var2 or none // x_1 + x_2 <= 1
+                }
+            }else
+            {
+                fprintf(stderr, "[M::%s::%.3f*%.2f] High coverage model started\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0));
+            }
+         }
+        
 
         // Set the objective function
         obj = vtx_expr + z_expr;
@@ -1219,7 +1245,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
         }
 
         // Loop over haplotypes h = {1, 2}
-        for (int h = 1; h <= 2; ++h) {
+        for (int h = 1; h <= ploidy; ++h) {
             // Vector to store the names of non-zero binary variables for haplotype h
             std::vector<std::string> path_strs;
 
@@ -1376,7 +1402,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     }
 
     // After the try-catch block, write the haplotypes to files
-    for (int h = 1; h <= 2; ++h) {
+    for (int h = 1; h <= ploidy; ++h) {
         // Write haplotype to a file as fasta from the path
         std::string path_str = haplotypes[h];
         std::string hap_file_ = hap_file + "_" + std::to_string(h) + ".fa";

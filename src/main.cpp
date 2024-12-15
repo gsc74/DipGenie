@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    const char *opt_str = "x:d:c:l:s:m:R:q:T:N:m:h:k:w:t:g:r:o:DSc";
+    const char *opt_str = "x:p:d:c:l:s:m:R:q:T:N:m:h:k:w:t:g:r:o:DSc";
     ketopt_t o = KETOPT_INIT;
 	mg_mapopt_t opt;
 	mg_idxopt_t ipt;
@@ -45,6 +45,8 @@ int main(int argc, char *argv[]) {
     int32_t is_naive_exp = 0;
     float threshold = 1.0f;
     bool is_mixed = true;
+    int32_t ploidy = 2;
+    bool is_low_cov = false;
 
     int i, c, ret;
 	FILE *fp_help = stderr;
@@ -58,6 +60,8 @@ int main(int argc, char *argv[]) {
 	while ((c = ketopt(&o, argc, argv, 1, opt_str, long_options)) >= 0) {
 		if (c == 'w') ipt.w = atoi(o.arg);
 		else if (c == 'k') ipt.k = atoi(o.arg);
+        else if (c == 'p') ploidy = atoi(o.arg);
+        else if (c == 'l') is_low_cov = atoi(o.arg);
 		else if (c == 't') opt.n_threads = atoi(o.arg);
         else if (c == 'm') is_mixed = atoi(o.arg);
         else if (c == 'g') opt.gfa_file = o.arg;
@@ -85,6 +89,8 @@ int main(int argc, char *argv[]) {
         fprintf(fp_help, "    -q INT       Mode QP/ILP (default IQP i.e q1, use q0 for ILP) [%d]\n", is_qclp);
         // fprintf(fp_help, "    -N INT       Mode OPT/Naive expanded graph (default Optimized i.e N0, use N1 for Naive) [%d]\n", is_naive_exp);
         fprintf(fp_help, "    -m INT       Mixed/Interger programming (default Mixed i.e -m1, use -m0 for Integer) [%d]\n", is_mixed);
+        fprintf(fp_help, "    -p INT       Ploidy (default diploid i.e -p2, use -p1 for haploid) [%d]\n", ploidy);
+        fprintf(fp_help, "    -l INT       Low coverage mode (default high covergae mode i.e -l1, use -l0 for low coverage mode) [%d]\n", is_low_cov);
         fprintf(fp_help, "    -T FLOAT     Threshold for minimizer filtering [%.3f]\n", threshold);
         fprintf(fp_help, "    -t INT       Threads [%d]\n", opt.n_threads);
         fprintf(fp_help, "    -g INT       GFA file [%s]\n", opt.gfa_file.c_str());
@@ -118,6 +124,8 @@ int main(int argc, char *argv[]) {
     ILP_handle->num_threads = opt.n_threads; // number of threads
     ILP_handle->hap_file = opt.hap_file; // haplotype file to be written
     ILP_handle->debug = debug; // debug mode
+    ILP_handle->ploidy = ploidy; // ploidy
+    ILP_handle->is_low_cov = is_low_cov; // low coverage mode
     ILP_handle->hap_name = hap_name; // haplotype name to be written as id of the haplotype
     ILP_handle->k_mer = ipt.k; // k-mer size
     ILP_handle->window = ipt.w; // window size
