@@ -52,10 +52,10 @@ if not os.path.exists("logs"):
     os.makedirs("logs")
 
 def run_PHI2(i):
-    os.system("./PHI2 -t " + str(args.t) + " -g GFA_" + args.p + "_" + str(i + 1) + ".gfa" + " -r " + args.r + " -o " + args.p + "_" + str(i + 1) + " 2> logs/log_" + args.p + "_" + str(i + 1) + ".txt")
+    os.system("./PHI2 -t " + str(args.t) + " -g GFA_" + args.p + "_" + str(i + 1) + ".gfa" + " -r " + args.r + " -o " + args.p + "_" + str(i + 1) + " > logs/log_" + args.p + "_" + str(i + 1) + ".txt 2>&1")
     
-pool = multiprocessing.Pool(args.t)
-pool.map(run_PHI2, range(args.b))
+pool = multiprocessing.Pool(args.b)
+pool.map(run_PHI2, range(args.c))
 pool.close()
 pool.join()
 
@@ -63,7 +63,7 @@ pool.join()
 os.system("./join_haps.py " + args.p + " " + str(args.c))
 
 # run PHI2 agian with prefix.gfa and reads file
-os.system("./PHI2 -R0 -t " + str(args.t) + " -g " + args.p + ".gfa" + " -r " + args.r + " -o " + args.p + " 2> logs/log_" + args.p + "_join.txt")
+os.system("./PHI2 -k31 -w200 -t " + str(args.t) + " -g " + args.p + ".gfa" + " -r " + args.r + " -o " + args.p + " > logs/log_" + args.p + "_join.txt 2>&1")
 
 # end print time taken
 end_time = time.time()

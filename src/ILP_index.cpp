@@ -695,7 +695,8 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
         bool all_haps = false;
         for (const auto &anchor : Anchor_hits_map)
         {
-            if (anchor.second.first >= threshold * num_walks) {
+            if (anchor.second.first >= threshold * num_walks)
+            {
                 all_haps = true;
                 break;
             }
