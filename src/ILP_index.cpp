@@ -545,8 +545,13 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     #pragma omp parallel for num_threads(num_threads)
     for (size_t h = 0; h < num_walks; h++)
     {
+        if (paths[h].size() == 0) continue;
         std::string haplotype = "";
-        for (size_t i = 0; i < paths[h].size(); i++) haplotype += node_seq[paths[h][i]];
+        for (size_t i = 0; i < /* The code `paths[h].size` is likely accessing the size of the vector
+        or container `paths` at index `h`. It is retrieving the number of
+        elements in the container at index `h`. */
+        
+        paths[h].size(); i++) haplotype += node_seq[paths[h][i]];
         hap_sizes[h] = haplotype.size();
     }
 
@@ -558,6 +563,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     std::vector<std::unordered_map<uint64_t, std::vector<int32_t>>> kmer_hist_per_hap(num_walks);
     #pragma omp parallel for num_threads(num_threads)
     for (int32_t h = 0; h < num_walks; h++) {
+        if (paths[h].size() == 0) continue;
         kmer_index[h] = index_kmers(h);
         std::string hap_name = hap_id2name[h];
         fprintf(stderr, "%s : %d\n", hap_name.c_str(), kmer_index[h].size());
@@ -569,6 +575,42 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
             if (kmer_hist.find(minimizer.first) == kmer_hist.end() || (std::find(kmer_hist[minimizer.first].begin(), kmer_hist[minimizer.first].end(), h) == kmer_hist[minimizer.first].end())) {
                 kmer_hist[minimizer.first].push_back(h);
             }
+        }
+    }
+
+    // Pick top_k haps with the highest number of unique kmers
+    int32_t top_k = 2;
+    std::vector<std::pair<int32_t, int32_t>> hap_kmer_count(num_walks);
+    for (int32_t h = 0; h < num_walks; h++) {
+        hap_kmer_count[h] = std::make_pair(h, kmer_hist_per_hap[h].size());
+    }
+
+    std::sort(hap_kmer_count.begin(), hap_kmer_count.end(), [&](const std::pair<int32_t, int32_t>& a, const std::pair<int32_t, int32_t>& b) {
+        return a.second > b.second;
+    });
+
+    std::vector<int32_t> top_haps;
+    for (int32_t i = 0; i < top_k; i++) {
+        top_haps.push_back(hap_kmer_count[i].first);
+    }
+
+    // set paths[h].size() to 0 for non-top haplotypes
+    for (int32_t i = 0; i < num_walks; i++) {
+        if (std::find(top_haps.begin(), top_haps.end(), i) == top_haps.end()) {
+            paths[i].clear();
+        }
+    }
+
+    // assert that the top haplotypes are not empty
+    for (int32_t i = 0; i < top_k; i++) {
+        assert(paths[top_haps[i]].size() > 0);
+    }
+
+    // get a vector of non-top haplotypes
+    std::vector<int32_t> non_top_haps;
+    for (int32_t i = 0; i < num_walks; i++) {
+        if (std::find(top_haps.begin(), top_haps.end(), i) == top_haps.end()) {
+            non_top_haps.push_back(i);
         }
     }
 
@@ -644,6 +686,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     // compute the anchors
     for (int32_t h = 0; h < num_walks; h++)
     {
+        if (paths[h].size() == 0) continue;
         std::vector<std::vector<std::vector<int32_t>>> loc_match = compute_anchors(kmer_index[h], Sp_R); // parallel execution
         for (int32_t r = 0; r < Sp_R.size(); r++)
         {
@@ -659,6 +702,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     int32_t num_kmers_tot = 0;
     for (int32_t h = 0; h < num_walks; h++)
     {
+        if (paths[h].size() == 0) continue;
         int32_t loc_count = 0;
         for (int32_t r = 0; r < count_sp_r; r++)
         {
@@ -676,6 +720,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
         std::map<std::string, std::pair<int32_t, std::vector<std::pair<int32_t, std::vector<int32_t>>>>> Anchor_hits_map;
 
         for (int32_t h = 0; h < num_walks; h++) {
+            if (paths[h].size() == 0) continue;
             for (int32_t k = 0; k < Anchor_hits[r][h].size(); k++) {
                 std::string anchor_str;
                 for (auto v : Anchor_hits[r][h][k]) {
@@ -695,8 +740,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
         bool all_haps = false;
         for (const auto &anchor : Anchor_hits_map)
         {
-            if (anchor.second.first >= threshold * num_walks)
-            {
+            if (anchor.second.first >= threshold * std::min(num_walks, (uint32_t)top_k)) {
                 all_haps = true;
                 break;
             }
@@ -725,6 +769,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     std::cerr << "Number of Anchors" << std::endl;
     for (int32_t h = 0; h < num_walks; h++)
     {
+        if (paths[h].size() == 0) continue;
         int32_t loc_count = 0;
         for (int32_t r = 0; r < count_sp_r; r++)
         {
@@ -802,6 +847,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
                     int32_t temp = 0;
 
                     for (int32_t j = 0; j < num_walks; j++) {
+                        if (paths[j].size() == 0) continue;
                         for (int32_t k = 0; k < Anchor_hits[i][j].size(); k++) {
                             GRBLinExpr kmer_expr; // K-mer expression
                             std::string extra_var = "z_" + std::to_string(i) + "_" + std::to_string(j) + "_" + std::to_string(k);
@@ -860,6 +906,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
                     int32_t temp = 0;
 
                     for (int32_t j = 0; j < num_walks; j++) {
+                        if (paths[j].size() == 0) continue;
                         for (int32_t k = 0; k < Anchor_hits[i][j].size(); k++) {
                             std::string extra_var = "z_" + std::to_string(i) + "_" + std::to_string(j) + "_" + std::to_string(k);
                             std::string extra_var_h = extra_var + "_" + std::to_string(h);
@@ -954,6 +1001,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
 
         // Clear memory
         for (int32_t i = 0; i < num_walks; i++) {
+            if (paths[i].size() == 0) continue;
             kmer_index[i].clear();
         }
         kmer_index.clear();
@@ -978,6 +1026,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
 
             // Add start and end variables
             for (int32_t i = 0; i < num_walks; i++) {
+                if (paths[i].size() == 0) continue;
                 int32_t u_start = paths[i][0];
                 std::string var_name_start = "s_" + std::to_string(u_start) + "_" + std::to_string(i);
                 std::string var_name_start_h = var_name_start + "_" + std::to_string(h);
@@ -1007,6 +1056,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
 
             // Without recombination
             for (int32_t i = 0; i < num_walks; i++) {
+                if (paths[i].size() == 0) continue;
                 for (int32_t idx = 0; idx < paths[i].size() - 1; idx++) {
                     int32_t u = paths[i][idx];
                     int32_t v = paths[i][idx + 1];
@@ -1097,6 +1147,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
 
             // Paths-based flow constraints
             for (int32_t i = 0; i < num_walks; i++) {
+                if (paths[i].size() == 0) continue;
                 for (int32_t idx = 0; idx < paths[i].size(); idx++) {
                     if (idx == 0 || idx == paths[i].size() - 1) continue; // Skip source and sink nodes
 
@@ -1150,6 +1201,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
 
             // Flow constraints for source nodes
             for (int32_t i = 0; i < num_walks; i++) {
+                if (paths[i].size() == 0) continue;
                 int32_t u = paths[i][0];
                 GRBLinExpr s_expr;
                 std::string var_name_start = "s_" + std::to_string(u) + "_" + std::to_string(i);
@@ -1168,6 +1220,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
 
             // Flow constraints for sink nodes
             for (int32_t i = 0; i < num_walks; i++) {
+                if (paths[i].size() == 0) continue;
                 int32_t u = paths[i].back();
                 GRBLinExpr e_expr;
                 std::string var_name_end = std::to_string(u) + "_" + std::to_string(i) + "_e";
