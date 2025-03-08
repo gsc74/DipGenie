@@ -81,6 +81,7 @@ class ILP_index {
         float is_mixed;
         int32_t ploidy;
         bool is_low_cov;
+        int32_t top_k;
 
         // Constructor
         ILP_index(gfa_t *g);	// This is constructor

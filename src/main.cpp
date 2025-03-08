@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    const char *opt_str = "x:p:d:c:l:s:m:R:q:T:N:m:h:k:w:t:g:r:o:DSc";
+    const char *opt_str = "x:p:d:c:l:s:m:R:q:T:H:N:m:h:k:w:t:g:r:o:DSc";
     ketopt_t o = KETOPT_INIT;
 	mg_mapopt_t opt;
 	mg_idxopt_t ipt;
@@ -47,6 +47,7 @@ int main(int argc, char *argv[]) {
     bool is_mixed = true;
     int32_t ploidy = 2;
     bool is_low_cov = false;
+    int32_t top_k = 25;
 
     int i, c, ret;
 	FILE *fp_help = stderr;
@@ -68,6 +69,7 @@ int main(int argc, char *argv[]) {
         else if (c == 'R') recombination = atoi(o.arg);
         else if (c == 'q') is_qclp = atoi(o.arg);
         else if (c == 'N') is_naive_exp = atoi(o.arg);
+        else if (c == 'H') top_k = atoi(o.arg);
         else if (c == 'T') threshold = atof(o.arg);
         else if (c == 'r') opt.reads_file = o.arg;
         else if (c == 'o') opt.hap_file = o.arg;
@@ -86,6 +88,7 @@ int main(int argc, char *argv[]) {
 		fprintf(fp_help, "    -k INT       K-mer size [%d]\n", ipt.k);
 		fprintf(fp_help, "    -w INT       Minimizer window size [%d]\n", ipt.w);
         fprintf(fp_help, "    -R INT       Recombination penalty [%d]\n", recombination);
+        fprintf(fp_help, "    -H INT       Top H haplotypes [%d]\n", top_k);
         fprintf(fp_help, "    -q INT       Mode QP/ILP (default IQP i.e q1, use q0 for ILP) [%d]\n", is_qclp);
         // fprintf(fp_help, "    -N INT       Mode OPT/Naive expanded graph (default Optimized i.e N0, use N1 for Naive) [%d]\n", is_naive_exp);
         fprintf(fp_help, "    -m INT       Mixed/Interger programming (default Mixed i.e -m1, use -m0 for Integer) [%d]\n", is_mixed);
@@ -137,6 +140,7 @@ int main(int argc, char *argv[]) {
     ILP_handle->is_naive_exp = is_naive_exp; // naive mode
     ILP_handle->threshold = threshold; // threshold for k-mer filtering
     ILP_handle->is_mixed = is_mixed; // mixed mode
+    ILP_handle->top_k = top_k; // top k haplotypes
 
 
 

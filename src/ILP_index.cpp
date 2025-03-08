@@ -579,7 +579,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     }
 
     // Pick top_k haps with the highest number of unique kmers
-    int32_t top_k = 2;
+    top_k = std::min((int32_t)num_walks, top_k);
     std::vector<std::pair<int32_t, int32_t>> hap_kmer_count(num_walks);
     for (int32_t h = 0; h < num_walks; h++) {
         hap_kmer_count[h] = std::make_pair(h, kmer_hist_per_hap[h].size());
