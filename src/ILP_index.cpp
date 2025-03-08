@@ -578,42 +578,6 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
         }
     }
 
-    // Pick top_k haps with the highest number of unique kmers
-    top_k = std::min((int32_t)num_walks, top_k);
-    std::vector<std::pair<int32_t, int32_t>> hap_kmer_count(num_walks);
-    for (int32_t h = 0; h < num_walks; h++) {
-        hap_kmer_count[h] = std::make_pair(h, kmer_hist_per_hap[h].size());
-    }
-
-    std::sort(hap_kmer_count.begin(), hap_kmer_count.end(), [&](const std::pair<int32_t, int32_t>& a, const std::pair<int32_t, int32_t>& b) {
-        return a.second > b.second;
-    });
-
-    std::vector<int32_t> top_haps;
-    for (int32_t i = 0; i < top_k; i++) {
-        top_haps.push_back(hap_kmer_count[i].first);
-    }
-
-    // set paths[h].size() to 0 for non-top haplotypes
-    for (int32_t i = 0; i < num_walks; i++) {
-        if (std::find(top_haps.begin(), top_haps.end(), i) == top_haps.end()) {
-            paths[i].clear();
-        }
-    }
-
-    // assert that the top haplotypes are not empty
-    for (int32_t i = 0; i < top_k; i++) {
-        assert(paths[top_haps[i]].size() > 0);
-    }
-
-    // get a vector of non-top haplotypes
-    std::vector<int32_t> non_top_haps;
-    for (int32_t i = 0; i < num_walks; i++) {
-        if (std::find(top_haps.begin(), top_haps.end(), i) == top_haps.end()) {
-            non_top_haps.push_back(i);
-        }
-    }
-
     // Merge kmer_hist_per_hap into a single map
     std::unordered_map<uint64_t, std::vector<int32_t>> kmer_hist;
     std::unordered_map<uint64_t, int32_t> uniqe_kmers;
@@ -683,10 +647,11 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     fprintf(stderr, "[M::%s::%.3f*%.2f] Indexed reads with spectrum size: %d\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0), Sp_R.size());
 
     std::vector<std::vector<std::vector<std::vector<int32_t>>>> Anchor_hits(Sp_R.size(), std::vector<std::vector<std::vector<int32_t>>>(num_walks));
+    std::vector<int32_t> count_anchors_hap(num_walks, 0);
     // compute the anchors
     for (int32_t h = 0; h < num_walks; h++)
     {
-        if (paths[h].size() == 0) continue;
+        // if (paths[h].size() == 0) continue;
         std::vector<std::vector<std::vector<int32_t>>> loc_match = compute_anchors(kmer_index[h], Sp_R); // parallel execution
         for (int32_t r = 0; r < Sp_R.size(); r++)
         {
@@ -694,6 +659,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
             {
                 Anchor_hits[r][h].push_back(anchor);
             }
+            if (loc_match[r].size() > 0) count_anchors_hap[h]++; // count the number of unique anchors
         } 
     }
     Sp_R.clear();
@@ -702,7 +668,6 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     int32_t num_kmers_tot = 0;
     for (int32_t h = 0; h < num_walks; h++)
     {
-        if (paths[h].size() == 0) continue;
         int32_t loc_count = 0;
         for (int32_t r = 0; r < count_sp_r; r++)
         {
@@ -711,8 +676,50 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
         num_kmers_tot += loc_count;
     }
 
-    std::vector<std::vector<std::vector<std::vector<int32_t>>>> Anchor_hits_1(
-    count_sp_r, std::vector<std::vector<std::vector<int32_t>>>(num_walks));
+    // Pick top_k haps with the highest number of unique kmers
+    std::vector<std::pair<int32_t, int32_t>> kmer_anchor_hap(num_walks);
+    // fill with (kmer_index[h].size(), count_anchors_hap[h])
+    for (int32_t h = 0; h < num_walks; h++)
+    {
+        kmer_anchor_hap[h] = std::make_pair(kmer_hist_count[h], count_anchors_hap[h]);
+    }
+
+    top_k = std::min((int32_t)num_walks, top_k);
+    std::vector<std::pair<int32_t, float>> hap_kmer_count(num_walks);
+    for (int32_t h = 0; h < num_walks; h++) {
+        hap_kmer_count[h] = std::make_pair(h, double(count_anchors_hap[h]));
+    }
+
+    std::sort(hap_kmer_count.begin(), hap_kmer_count.end(), [&](const std::pair<int32_t, float>& a, const std::pair<int32_t, float>& b) {
+        return a.second > b.second;
+    });
+
+    std::vector<int32_t> top_haps;
+    for (int32_t i = 0; i < top_k; i++) {
+        top_haps.push_back(hap_kmer_count[i].first);
+    }
+
+    // set paths[h].size() to 0 for non-top haplotypes
+    for (int32_t i = 0; i < num_walks; i++) {
+        if (std::find(top_haps.begin(), top_haps.end(), i) == top_haps.end()) {
+            paths[i].clear();
+        }
+    }
+
+    // assert that the top haplotypes are not empty
+    for (int32_t i = 0; i < top_k; i++) {
+        assert(paths[top_haps[i]].size() > 0);
+    }
+
+    // get a vector of non-top haplotypes
+    std::vector<int32_t> non_top_haps;
+    for (int32_t i = 0; i < num_walks; i++) {
+        if (std::find(top_haps.begin(), top_haps.end(), i) == top_haps.end()) {
+            non_top_haps.push_back(i);
+        }
+    }
+
+    std::vector<std::vector<std::vector<std::vector<int32_t>>>> Anchor_hits_1(count_sp_r, std::vector<std::vector<std::vector<int32_t>>>(num_walks));
 
     std::vector<int64_t> filtered_kmers_vec(num_threads, 0);
     #pragma omp parallel for num_threads(num_threads)

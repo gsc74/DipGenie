@@ -1,4 +1,4 @@
-CXX = g++ -std=c++11
+CXX = g++ -std=c++17
 CXXFLAGS = -fopenmp -pthread -march=native -mtune=native -O3
 LDFLAGS = -lgurobi_c++ -lgurobi120 -lm -lz -lpthread -ldl
 GUROBI_HOME = /home/ghanshyam/opt/gurobi1201/linux64
