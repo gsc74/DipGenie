@@ -545,13 +545,8 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     #pragma omp parallel for num_threads(num_threads)
     for (size_t h = 0; h < num_walks; h++)
     {
-        if (paths[h].size() == 0) continue;
         std::string haplotype = "";
-        for (size_t i = 0; i < /* The code `paths[h].size` is likely accessing the size of the vector
-        or container `paths` at index `h`. It is retrieving the number of
-        elements in the container at index `h`. */
-        
-        paths[h].size(); i++) haplotype += node_seq[paths[h][i]];
+        for (size_t i = 0; i < paths[h].size(); i++) haplotype += node_seq[paths[h][i]];
         hap_sizes[h] = haplotype.size();
     }
 
@@ -641,7 +636,13 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     }
     assert(Sp_R.size() == count_sp_r);
     // clear the read hashes
-    Read_hashes.clear();
+    // Read_hashes.clear();
+
+    // get a map id -> hash
+    std::map<int32_t, uint64_t> Sp_R_hash;
+    for (const auto& hash_pair : Sp_R) {
+        Sp_R_hash[hash_pair.second] = hash_pair.first; // map_id -> hash
+    }
 
     // print Indexed reads with spectrum size: Sp_R.size()
     fprintf(stderr, "[M::%s::%.3f*%.2f] Indexed reads with spectrum size: %d\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0), Sp_R.size());
@@ -804,6 +805,119 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
         }
     }
 
+    // Compute Heterozygous and Homozygous Kmers
+    std::vector<std::vector<std::vector<std::vector<int32_t>>>> Anchor_hits_homo(count_sp_r, std::vector<std::vector<std::vector<int32_t>>>(num_walks));
+    std::vector<std::vector<std::vector<std::vector<int32_t>>>> Anchor_hits_hetero(count_sp_r, std::vector<std::vector<std::vector<int32_t>>>(num_walks));
+
+    // Iterate over all the reads and do +=1 if kmer is seen more than once if kmer is not there in kmer_count then set it to 0
+    // std::vector<std::set<uint64_t>> kmer_reads(num_reads);
+    // std::map<uint64_t, int32_t> Sp_R;
+    std::set<uint64_t> S_homo;
+    std::set<uint64_t> S_hetero;
+
+    // Shared map
+    std::map<uint64_t, int32_t> kmer_count;
+
+    // Mutex for merging
+    std::mutex map_mutex;
+
+    #pragma omp parallel num_threads(num_threads)
+    {
+        std::map<uint64_t, int32_t> local_map;
+
+        #pragma omp for nowait
+        for (int32_t r = 0; r < num_reads; r++) {
+            for (auto hash : Read_hashes[r]) {
+                local_map[hash] += 1;
+            }
+        }
+
+        // Merge local_map into global map (serial part)
+        std::lock_guard<std::mutex> lock(map_mutex);
+        for (const auto& kv : local_map) {
+            kmer_count[kv.first] += kv.second;
+        }
+    }
+
+    Read_hashes.clear();
+
+    
+    int32_t peak_kmer_count = 0;
+    // Extract all the kmer counts into a vector
+    std::vector<int32_t> counts;
+    for (const auto& kv : kmer_count) {
+        counts.push_back(kv.second);
+    }
+
+    // Sort in descending order
+    std::sort(counts.begin(), counts.end(), std::greater<int32_t>());
+
+    // Compute average of top N/2 values
+    size_t top_n = counts.size() / 2;
+    if (top_n > 0) {
+        int64_t sum = 0;
+        for (size_t i = 0; i < top_n; ++i) {
+            sum += counts[i];
+        }
+        peak_kmer_count = static_cast<int32_t>(sum / top_n);
+    }
+
+    // Fill S_homo and S_hetero based on peak_kmer_count
+    int32_t peak_count_kmer = std::max(1, peak_kmer_count / 2);
+
+    // Classification (serial)
+    for (const auto& kv : kmer_count) {
+        if (kv.second <= peak_count_kmer) {
+            S_hetero.insert(kv.first);
+        } else {
+            S_homo.insert(kv.first);
+        }
+    }
+
+    // Declare atomic counters
+    std::atomic<int32_t> count_hetero(0);
+    std::atomic<int32_t> count_homo(0);
+    std::atomic<int32_t> total_kmers(0);
+
+    // Parallel loop
+    #pragma omp parallel for num_threads(num_threads)
+    for (int32_t h = 0; h < num_walks; h++) {
+        for (int32_t r = 0; r < count_sp_r; r++) {
+            if (Anchor_hits[r][h].empty()) continue;
+
+            uint64_t hash = Sp_R_hash[r];
+
+            total_kmers += 1;
+
+            if (S_homo.find(hash) != S_homo.end()) {
+                count_homo++;
+
+                #pragma omp critical
+                Anchor_hits_homo[r][h].insert(
+                    Anchor_hits_homo[r][h].end(),
+                    Anchor_hits[r][h].begin(),
+                    Anchor_hits[r][h].end()
+                );
+            } else if (S_hetero.find(hash) != S_hetero.end()) {
+                count_hetero++;
+
+                #pragma omp critical
+                Anchor_hits_hetero[r][h].insert(
+                    Anchor_hits_hetero[r][h].end(),
+                    Anchor_hits[r][h].begin(),
+                    Anchor_hits[r][h].end()
+                );
+            }
+        }
+    }
+
+    assert(count_hetero.load() + count_homo.load() == total_kmers.load());
+    float frac_homo = (float)count_homo.load()/total_kmers.load();
+    float frac_hetero = (float)count_hetero.load()/total_kmers.load();
+
+    fprintf(stderr, "[M::%s::%.3f*%.2f] Phasing completed. Homozygous kmers: %.2f%, Heterozygous kmers: %.2f%, Total kmers: %d\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0), frac_homo * 100, frac_hetero * 100, total_kmers.load());
+
+
     // For backtracking the haplotype
     std::map<int, std::string> haplotypes; // h -> haplotype string
     // Write an ILP with Gurobi
@@ -825,13 +939,15 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
 
         // Initialize the objective function and expressions
         GRBLinExpr obj;
-        GRBLinExpr vtx_expr;
+        // GRBLinExpr vtx_expr;
         GRBLinExpr z_expr; // For the objective function
 
         // Data structures
         std::map<int, std::map<std::string, GRBVar>> vars;          // h -> var_name -> GRBVar
-        std::map<int, std::map<int32_t, GRBVar>> Zvars_h;           // h -> i -> GRBVar
-        std::map<int32_t, GRBVar> Zvars;                            // i -> GRBVar
+        std::map<int, std::map<int32_t, GRBVar>> Zvars_h_alpha;           // h -> i -> GRBVar
+        std::map<int, std::map<int32_t, GRBVar>> Zvars_h_beta;           // h -> i -> GRBVar
+        std::map<int32_t, GRBVar> Zvars_alpha;                            // i -> GRBVar
+        std::map<int32_t, GRBVar> Zvars_beta;                            // i -> GRBVar
 
         int32_t c_1 = recombination; // INF no recombination
 
@@ -846,7 +962,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
             // Loop over h = {1, 2}
             for (int h = 1; h <= ploidy; ++h) {
                 vars[h] = std::map<std::string, GRBVar>();
-                Zvars_h[h] = std::map<int32_t, GRBVar>();
+                Zvars_h_alpha[h] = std::map<int32_t, GRBVar>();
 
                 // K-mer constraints for graph h
                 for (int32_t i = 0; i < count_sp_r; i++) {
@@ -855,9 +971,9 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
 
                     for (int32_t j = 0; j < num_walks; j++) {
                         if (paths[j].size() == 0) continue;
-                        for (int32_t k = 0; k < Anchor_hits[i][j].size(); k++) {
+                        for (int32_t k = 0; k < Anchor_hits_homo[i][j].size(); k++) {
                             GRBLinExpr kmer_expr; // K-mer expression
-                            std::string extra_var = "z_" + std::to_string(i) + "_" + std::to_string(j) + "_" + std::to_string(k);
+                            std::string extra_var = "alpha_" + std::to_string(i) + "_" + std::to_string(j) + "_" + std::to_string(k);
                             std::string extra_var_h = extra_var + "_" + std::to_string(h);
                             GRBVar kmer_expr_var = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, extra_var_h);
 
@@ -879,7 +995,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
 
                             int32_t weight = Anchor_hits[i][j][k].size() - 1;
                             model.addConstr(kmer_expr >= weight * kmer_expr_var,
-                                "Kmer_constraints_" + std::to_string(i) + "_" + std::to_string(j) + "_" +
+                                "Kmer_constraints_alpha_" + std::to_string(i) + "_" + std::to_string(j) + "_" +
                                 std::to_string(k) + "_" + std::to_string(h));
 
                             z_expr_h += kmer_expr_var;
@@ -887,24 +1003,78 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
                         }
                     }
                     if (temp != 0) {
-                        std::string constraint_name = "Kmer_constraints_" + std::to_string(i) + "_" + std::to_string(h);
-                        std::string z_var = "z_" + std::to_string(i);
+                        std::string constraint_name = "Kmer_constraints_alpha_" + std::to_string(i) + "_" + std::to_string(h);
+                        std::string z_var = "alpha_" + std::to_string(i);
                         std::string z_var_h = z_var + "_" + std::to_string(h);
                         GRBVar z_var_r = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, z_var_h);
-                        Zvars_h[h][i] = z_var_r;
-                        model.addConstr(z_expr_h == z_var_r, "Z_constraint_" + std::to_string(i) + "_" + std::to_string(h));
+                        Zvars_h_alpha[h][i] = z_var_r;
+                        model.addConstr(z_expr_h == z_var_r, "alpha_constraint_" + std::to_string(i) + "_" + std::to_string(h));
                         if (h==1) count_kmer_matches++;
                     }
                 }
             }
-        }
-        else
-        {
+
+            // For hetero
+            // Loop over h = {1, 2}
+            for (int h = 1; h <= ploidy; ++h) {
+                vars[h] = std::map<std::string, GRBVar>();
+                Zvars_h_beta[h] = std::map<int32_t, GRBVar>();
+
+                // K-mer constraints for graph h
+                for (int32_t i = 0; i < count_sp_r; i++) {
+                    GRBLinExpr z_expr_h;
+                    int32_t temp = 0;
+
+                    for (int32_t j = 0; j < num_walks; j++) {
+                        if (paths[j].size() == 0) continue;
+                        for (int32_t k = 0; k < Anchor_hits_hetero[i][j].size(); k++) {
+                            GRBLinExpr kmer_expr; // K-mer expression
+                            std::string extra_var = "beta_" + std::to_string(i) + "_" + std::to_string(j) + "_" + std::to_string(k);
+                            std::string extra_var_h = extra_var + "_" + std::to_string(h);
+                            GRBVar kmer_expr_var = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, extra_var_h);
+
+                            if (Anchor_hits[i][j][k].size() - 1 == 0) continue; // Ignore matches with only one vertex
+
+                            for (int32_t l = 1; l < Anchor_hits[i][j][k].size(); l++) {
+                                int32_t u = Anchor_hits[i][j][k][l - 1];
+                                int32_t v = Anchor_hits[i][j][k][l];
+                                std::string var_name = std::to_string(u) + "_" + std::to_string(j) + "_" + std::to_string(v) + "_" + std::to_string(j);
+                                std::string var_name_h = var_name + "_" + std::to_string(h);
+
+                                // Add variable if it doesn't exist
+                                if (vars[h].find(var_name) == vars[h].end()) {
+                                    vars[h][var_name] = model.addVar(0.0, 1.0, 0.0,
+                                        is_mixed ? GRB_CONTINUOUS : GRB_BINARY, var_name_h);
+                                }
+                                kmer_expr += vars[h][var_name];
+                            }
+
+                            int32_t weight = Anchor_hits[i][j][k].size() - 1;
+                            model.addConstr(kmer_expr >= weight * kmer_expr_var,
+                                "Kmer_constraints_beta_" + std::to_string(i) + "_" + std::to_string(j) + "_" +
+                                std::to_string(k) + "_" + std::to_string(h));
+
+                            z_expr_h += kmer_expr_var;
+                            temp += 1;
+                        }
+                    }
+                    if (temp != 0) {
+                        std::string constraint_name = "Kmer_constraints_beta_" + std::to_string(i) + "_" + std::to_string(h);
+                        std::string z_var = "beta_" + std::to_string(i);
+                        std::string z_var_h = z_var + "_" + std::to_string(h);
+                        GRBVar z_var_r = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, z_var_h);
+                        Zvars_h_beta[h][i] = z_var_r;
+                        model.addConstr(z_expr_h == z_var_r, "beta_constraint_" + std::to_string(i) + "_" + std::to_string(h));
+                        if (h==1) count_kmer_matches++;
+                    }
+                }
+            }
+        } else {
             fprintf(stderr, "[M::%s::%.3f*%.2f] QP model started\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0));
             // Loop over h = {1, 2}
             for (int h = 1; h <= ploidy; ++h) {
                 vars[h] = std::map<std::string, GRBVar>();
-                Zvars_h[h] = std::map<int32_t, GRBVar>();
+                Zvars_h_alpha[h] = std::map<int32_t, GRBVar>();
 
                 // K-mer constraints for graph h
                 for (int32_t i = 0; i < count_sp_r; i++) {
@@ -914,8 +1084,8 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
 
                     for (int32_t j = 0; j < num_walks; j++) {
                         if (paths[j].size() == 0) continue;
-                        for (int32_t k = 0; k < Anchor_hits[i][j].size(); k++) {
-                            std::string extra_var = "z_" + std::to_string(i) + "_" + std::to_string(j) + "_" + std::to_string(k);
+                        for (int32_t k = 0; k < Anchor_hits_homo[i][j].size(); k++) {
+                            std::string extra_var = "alpha_" + std::to_string(i) + "_" + std::to_string(j) + "_" + std::to_string(k);
                             std::string extra_var_h = extra_var + "_" + std::to_string(h);
                             GRBVar kmer_expr_var = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, extra_var_h);
 
@@ -943,14 +1113,69 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
                         }
                     }
                     if (temp != 0) {
-                        std::string constraint_name = "Kmer_constraints_" + std::to_string(i) + "_" + std::to_string(h);
+                        std::string constraint_name = "Kmer_constraints_alpha_" + std::to_string(i) + "_" + std::to_string(h);
                         int32_t kmer_weight = k_mer - 1;
-                        std::string z_var = "z_" + std::to_string(i);
+                        std::string z_var = "alpha_" + std::to_string(i);
                         std::string z_var_h = z_var + "_" + std::to_string(h);
                         GRBVar z_var_r = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, z_var_h);
-                        Zvars_h[h][i] = z_var_r;
+                        Zvars_h_alpha[h][i] = z_var_r;
                         model.addQConstr(kmer_expr == kmer_weight * z_var_r, constraint_name);
-                        model.addConstr(z_expr_h == z_var_r, "Z_constraint_" + std::to_string(i) + "_" + std::to_string(h));
+                        model.addConstr(z_expr_h == z_var_r, "alpha_constraint_" + std::to_string(i) + "_" + std::to_string(h));
+                        if (h==1) count_kmer_matches++;
+                    }
+                }
+            }
+
+            // Heterozygous K-mers
+            for (int h = 1; h <= ploidy; ++h) {
+                vars[h] = std::map<std::string, GRBVar>();
+                Zvars_h_beta[h] = std::map<int32_t, GRBVar>();
+
+                // K-mer constraints for graph h
+                for (int32_t i = 0; i < count_sp_r; i++) {
+                    GRBQuadExpr kmer_expr;
+                    GRBLinExpr z_expr_h;
+                    int32_t temp = 0;
+
+                    for (int32_t j = 0; j < num_walks; j++) {
+                        if (paths[j].size() == 0) continue;
+                        for (int32_t k = 0; k < Anchor_hits_hetero[i][j].size(); k++) {
+                            std::string extra_var = "beta_" + std::to_string(i) + "_" + std::to_string(j) + "_" + std::to_string(k);
+                            std::string extra_var_h = extra_var + "_" + std::to_string(h);
+                            GRBVar kmer_expr_var = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, extra_var_h);
+
+                            if (Anchor_hits[i][j][k].size() - 1 == 0) continue; // Ignore matches with only one vertex
+
+                            int32_t weight = (k_mer - 1) - (Anchor_hits[i][j][k].size() - 1);
+                            kmer_expr += weight * kmer_expr_var; // weight * z_{i,j,k}
+
+                            for (int32_t l = 1; l < Anchor_hits[i][j][k].size(); l++) {
+                                int32_t u = Anchor_hits[i][j][k][l - 1];
+                                int32_t v = Anchor_hits[i][j][k][l];
+                                std::string var_name = std::to_string(u) + "_" + std::to_string(j) + "_" + std::to_string(v) + "_" + std::to_string(j);
+                                std::string var_name_h = var_name + "_" + std::to_string(h);
+
+                                // Add variable if it doesn't exist
+                                if (vars[h].find(var_name) == vars[h].end()) {
+                                    vars[h][var_name] = model.addVar(0.0, 1.0, 0.0,
+                                        is_mixed ? GRB_CONTINUOUS : GRB_BINARY, var_name_h);
+                                }
+                                kmer_expr += vars[h][var_name] * kmer_expr_var;
+                            }
+
+                            z_expr_h += kmer_expr_var;
+                            temp += 1;
+                        }
+                    }
+                    if (temp != 0) {
+                        std::string constraint_name = "Kmer_constraints_beta_" + std::to_string(i) + "_" + std::to_string(h);
+                        int32_t kmer_weight = k_mer - 1;
+                        std::string z_var = "beta_" + std::to_string(i);
+                        std::string z_var_h = z_var + "_" + std::to_string(h);
+                        GRBVar z_var_r = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, z_var_h);
+                        Zvars_h_beta[h][i] = z_var_r;
+                        model.addQConstr(kmer_expr == kmer_weight * z_var_r, constraint_name);
+                        model.addConstr(z_expr_h == z_var_r, "beta_constraint_" + std::to_string(i) + "_" + std::to_string(h));
                         if (h==1) count_kmer_matches++;
                     }
                 }
@@ -958,48 +1183,58 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
         }
 
         // Combine Zvars_h[1][i] and Zvars_h[2][i] to create Zvars[i]
-        std::set<int32_t> z_indices;
+        std::set<int32_t> z_indices_alpha;
+        std::set<int32_t> z_indices_beta;
+
         for (int h = 1; h <= ploidy; ++h) {
-            for (const auto& z_pair : Zvars_h[h]) {
-                z_indices.insert(z_pair.first);
+            for (const auto& z_pair : Zvars_h_alpha[h]) {
+                z_indices_alpha.insert(z_pair.first);
+            }
+            for (const auto& z_pair : Zvars_h_beta[h]) {
+                z_indices_beta.insert(z_pair.first);
             }
         }
 
-        for (int32_t i : z_indices) {
-            std::string z_var_name = "z_" + std::to_string(i);
-            GRBVar z_var_r = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, z_var_name);
-            Zvars[i] = z_var_r;
+        for (int32_t i : z_indices_alpha) {
+            std::string z_var_name_alpha = "alpha_" + std::to_string(i);
+            GRBVar z_var_alpha = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, z_var_name_alpha);
+            Zvars_alpha[i] = z_var_alpha;
+            z_expr += z_var_alpha;
 
-            GRBLinExpr sum_expr;
+            GRBLinExpr sum_expr_alpha;
             for (int h = 1; h <= ploidy; ++h) {
-                if (Zvars_h[h].find(i) != Zvars_h[h].end()) {
-                    sum_expr += Zvars_h[h][i];
+                if (Zvars_h_alpha[h].find(i) != Zvars_h_alpha[h].end()) {
+                    sum_expr_alpha += Zvars_h_alpha[h][i];
                 }
             }
 
-            // if (Zvars_h[1].find(i) != Zvars_h[1].end()) {
-            //     sum_expr += Zvars_h[1][i];
-            //     // z_expr += (1 - Zvars_h[1][i]);
-            // }
-            // if (Zvars_h[2].find(i) != Zvars_h[2].end()) {
-            //     sum_expr += Zvars_h[2][i];
-            //     // z_expr += (1 - Zvars_h[2][i]);
-            // }
+            model.addConstr(sum_expr_alpha == 2 * Zvars_alpha[i], "alpha_constraint_" + std::to_string(i)); // alpha_1 + alpha_2 == 2 * alpha (Pick only one of these)
+        }
 
-            if (is_low_cov)
-            {
-                model.addConstr(sum_expr >= Zvars[i], "Z_constraint_" + std::to_string(i)); // z_1 + z_2 >= z (Pick only one of these)
-            }else
-            {
-                model.addConstr(sum_expr == Zvars[i], "Z_constraint_" + std::to_string(i)); // z_1 + z_2 == z (Pick only one of these)
+        for (int32_t i : z_indices_beta) {
+            // For beta
+            std::string z_var_name_beta = "beta_" + std::to_string(i);
+            GRBVar z_var_beta = model.addVar(0.0, 1.0, 0.0, GRB_BINARY, z_var_name_beta);
+            Zvars_beta[i] = z_var_beta;
+            z_expr += z_var_beta;
+
+            GRBLinExpr sum_expr_beta;
+            for (int h = 1; h <= ploidy; ++h) {
+                if (Zvars_h_beta[h].find(i) != Zvars_h_beta[h].end()) {
+                    sum_expr_beta += Zvars_h_beta[h][i];
+                }
             }
-            
+
+            model.addConstr(sum_expr_beta == Zvars_beta[i], "beta_constraint_" + std::to_string(i)); // beta_1 + beta_2 == beta (Pick only one of these)
         }
 
-        // Include the z_vars into the objective function
-        for (const auto& z_var_pair : Zvars) {
-            z_expr += (1 - z_var_pair.second);
-        }
+        // // Include the z_vars into the objective function
+        // for (const auto& z_var_pair : Zvars_alpha) {
+        //     z_expr += z_var_pair.second;
+        // }
+        // for (const auto& z_var_pair : Zvars_beta) {
+        //     z_expr += z_var_pair.second;
+        // }
 
         // Print statistics
         fprintf(stderr, "[M::%s::%.3f*%.2f] %.2f%% Minimizers are in ILP\n", __func__,
@@ -1026,6 +1261,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
 
         // Continue with the main model construction
         for (int h = 1; h <= ploidy; ++h) {
+            GRBLinExpr vtx_expr;
             // Initialize adjacency lists and expressions for each h
             std::map<std::string, std::vector<std::string>> new_adj;
             GRBLinExpr start_expr;
@@ -1120,7 +1356,8 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
                                     is_mixed ? GRB_CONTINUOUS : GRB_BINARY, var_name_1_h);
                                 vars[h][var_name_1] = var;
                             }
-                            vtx_expr += (c_1 / 2) * vars[h][var_name_1];
+                            // vtx_expr += (c_1 / 2) * vars[h][var_name_1];
+                            vtx_expr += vars[h][var_name_1];
                         }
                     }
 
@@ -1137,7 +1374,8 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
                                     is_mixed ? GRB_CONTINUOUS : GRB_BINARY, var_name_2_h);
                                 vars[h][var_name_2] = var;
                             }
-                            vtx_expr += (c_1 / 2) * vars[h][var_name_2];
+                            // vtx_expr += (c_1 / 2) * vars[h][var_name_2];
+                            vtx_expr += vars[h][var_name_2];
                         }
                     }
                 }
@@ -1243,45 +1481,29 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
                 model.addConstr(e_expr == 0, constraint_name);
             }
 
+            // Recombination vertex expression <= R;
+            // int32_t R = recombination; // Set the maximum number of recombination vertices allowed
+            model.addConstr(vtx_expr <= 2 * recombination, "Max_recombination_constraint" + std::to_string(h)); // there are two edges for 1 recombination
             // Clean up
             new_adj.clear();
             in_nodes_new.clear();
         }
-
-         if (ploidy == 2)
-         {
-            // Add phasing constraints
-            std::set<std::string> common_var_names;
-            for (const auto& var_pair : vars[1]) {
-                if (vars[2].find(var_pair.first) != vars[2].end()) {
-                    common_var_names.insert(var_pair.first);
-                }
-            }
-
-            if (is_low_cov)
-            {
-                fprintf(stderr, "[M::%s::%.3f*%.2f] Low coverage model started\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0));
-                // // For each common variable, add the phasing constraint vars[1][var_name] + vars[2][var_name] <= 1
-                for (const auto& var_name : common_var_names) {
-                    GRBVar var1 = vars[1][var_name];
-                    GRBVar var2 = vars[2][var_name];
-                    model.addConstr(var1 + var2 <= 1, "Phasing_constraint_" + var_name); // either pick var1 or var2 or none // x_1 + x_2 <= 1
-                }
-            }else
-            {
-                fprintf(stderr, "[M::%s::%.3f*%.2f] High coverage model started\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0));
-            }
-         }
         
 
         // Set the objective function
-        obj = vtx_expr + z_expr;
-        model.setObjective(obj, GRB_MINIMIZE);
+        // obj = vtx_expr + z_expr;
+        // model.setObjective(obj, GRB_MINIMIZE);
+
+        // Maximization objective
+        obj = z_expr;
+        model.setObjective(obj, GRB_MAXIMIZE);
 
         // Clear data structures if needed
         vars.clear();
-        Zvars_h.clear();
-        Zvars.clear();
+        Zvars_h_alpha.clear();
+        Zvars_alpha.clear();
+        Zvars_h_beta.clear();
+        Zvars_beta.clear();
 
         fprintf(stderr, "[M::%s::%.3f*%.2f] Optimized expanded graph constructed\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0));
 
@@ -1320,8 +1542,8 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
                 if (var.get(GRB_DoubleAttr_X) == 1.0 || var.get(GRB_DoubleAttr_X) == 1) {
                     std::string var_name = var.get(GRB_StringAttr_VarName);
 
-                    // Skip variables that start with 's', 'z', or end with 'e'
-                    if (var_name[0] == 's' || var_name[0] == 'z' || var_name[var_name.size() - 3] == 'e') {
+                    // Skip variables that start with 's', 'a', 'b', or end with 'e'
+                    if (var_name[0] == 's' || var_name[0] == 'a' || var_name[0] == 'b' || var_name[var_name.size() - 3] == 'e') {
                         continue;
                     }
 
