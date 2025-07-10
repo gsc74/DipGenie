@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
 	mg_mapopt_t opt;
 	mg_idxopt_t ipt;
     bool debug = false;
-    int32_t recombination = 10;
+    int32_t recombination = 100;
     int32_t is_qclp = 1;
     int32_t is_naive_exp = 0;
     float threshold = 1.0f;
