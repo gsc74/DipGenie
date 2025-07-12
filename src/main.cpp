@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
     bool is_mixed = true;
     int32_t ploidy = 2;
     bool is_low_cov = false;
-    int32_t top_k = 25;
+    int32_t top_k = 15; // Needs Fix
 
     int i, c, ret;
 	FILE *fp_help = stderr;
