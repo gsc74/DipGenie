@@ -86,6 +86,35 @@ void get_hap_name(char *gfa_name, char *reads_name, std::string &hap_name)
     }
 }
 
+std::string reverse_strand_(std::string seq)
+{
+    std::string rev_seq = "";
+    for (int i = seq.size() - 1; i >= 0; i--)
+    {
+        if (seq[i] == 'A' || seq[i] == 'a')
+        {
+            rev_seq += 'T';
+        }
+        else if (seq[i] == 'T' || seq[i] == 't')
+        {
+            rev_seq += 'A';
+        }
+        else if (seq[i] == 'C' || seq[i] == 'c')
+        {
+            rev_seq += 'G';
+        }
+        else if (seq[i] == 'G' || seq[i] == 'g')
+        {
+            rev_seq += 'C';
+        }else
+        {
+            rev_seq += seq[i];
+        }
+        
+    }
+    return rev_seq;
+}
+
 int mg_verbose = 1;
 int mg_dbg_flag = 0;
 double mg_realtime0;
