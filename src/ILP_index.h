@@ -38,6 +38,7 @@
 #include "gurobi_c++.h"
 #include "MurmurHash3.h"
 
+#pragma once
 struct Anchor 
 {
     int32_t h;
