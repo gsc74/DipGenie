@@ -954,7 +954,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     try {
         // Create an environment
         GRBEnv env = GRBEnv(true);
-        env.set(GRB_IntParam_Threads, num_threads);
+        // env.set(GRB_IntParam_Threads, 0);
         env.start();
 
         // Create an empty model
@@ -966,6 +966,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
         model.set("NodefileStart", "0.5"); // 0.5 GB nodefile start
         model.set("Presolve", "2"); // Aggressive presolve to reduce the model size
         model.set("Method", "3"); // Concurrent method
+        model.set("Threads", std::to_string(num_threads));   // let Gurobi decide
 
         // Initialize the objective function and expressions
         GRBLinExpr obj;
