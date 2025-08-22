@@ -349,11 +349,11 @@ int strict_bfs_levelize_and_reorder()
     std::vector<int>                             next_lvl   = lvl;
     std::vector<int>                             next_hap   = haplotype;   // <-- carry haplotype
 
-    auto add_dummy = [&](int new_level, int hap) -> int {  // <-- pass hap to set for dummy
+    auto add_dummy = [&](int new_level, int hap, int inherit_from) -> int {  // <-- pass hap to set for dummy
         int id = static_cast<int>(next_adj.size());
         next_adj.emplace_back();
         next_color.emplace_back();     // empty
-        next_orig.emplace_back();      // empty
+        next_orig.emplace_back(next_orig[inherit_from]);
         next_lvl.push_back(new_level);
         next_hap.push_back(hap);       // <-- set haplotype for dummy (e.g., inherit from u)
         return id;
@@ -370,7 +370,7 @@ int strict_bfs_levelize_and_reorder()
                 // create chain of 'gap' dummies at consecutive levels
                 int prev = u;
                 for (int step = 1; step <= gap; ++step) {
-                    int dummy = add_dummy(next_lvl[u] + step, haplotype[u]); // <-- inherit hap from u
+                    int dummy = add_dummy(next_lvl[u] + step, haplotype[u], u); // <-- inherit hap from u
                     // carry original weight on the first segment; remaining are 0
                     next_adj[prev].emplace_back(dummy, (step == 1 ? w : 0));
                     prev = dummy;
