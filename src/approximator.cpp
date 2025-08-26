@@ -1483,7 +1483,7 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
         std::cout << "r: " << r << " -> " << r + 1 << ", Δscore: " << delta
                 << ", angle: " << angle_deg << "°" //<<", ed: " << edit_dist_by_r.at(i)
                 << std::endl;
-        if(angle_deg < 4){
+        if(angle_deg < 10){
             best_r = r;
             break;
         }
@@ -2335,17 +2335,17 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
         }
 
         std::string dp_output_2;
-        for(auto u_original : p1){
+        for(auto u_original : p2){
             dp_output_2 += node_seq[u_original];
         }
 
         std::ofstream dp_file_stream(hap_file, std::ios::out);
-        dp_file_stream << ">" << "sol_1" << " LN:" << p1.size() << std::endl;
+        dp_file_stream << ">" << "sol_1" << " bp:" << p1.size() << std::endl;
         // write the path_str to the file 80 characters per line
         for (size_t i = 0; i < dp_output_1.size(); i += 80) {
             dp_file_stream << dp_output_1.substr(i, 80) << std::endl;
         }
-        dp_file_stream << ">" << "sol_2" << " LN:" << p1.size() << std::endl;
+        dp_file_stream << ">" << "sol_2" << " bp:" << p1.size() << std::endl;
         // write the path_str to the file 80 characters per line
         for (size_t i = 0; i < dp_output_2.size(); i += 80) {
             dp_file_stream << dp_output_2.substr(i, 80) << std::endl;
