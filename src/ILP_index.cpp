@@ -833,6 +833,7 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     // Compute Heterozygous and Homozygous Kmers
     std::vector<std::vector<std::vector<std::vector<int32_t>>>> Anchor_hits_homo(count_sp_r, std::vector<std::vector<std::vector<int32_t>>>(num_walks));
     std::vector<std::vector<std::vector<std::vector<int32_t>>>> Anchor_hits_hetero(count_sp_r, std::vector<std::vector<std::vector<int32_t>>>(num_walks));
+    std::vector<std::vector<std::vector<std::vector<int32_t>>>> Anchor_hits_ambiguous(count_sp_r, std::vector<std::vector<std::vector<int32_t>>>(num_walks));
 
     // Iterate over all the reads and do +=1 if kmer is seen more than once if kmer is not there in kmer_count then set it to 0
     // std::vector<std::set<uint64_t>> kmer_reads(num_reads);
@@ -862,60 +863,137 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
         }
     }
 
-    Read_hashes.clear();
+    // // print first 10 elements from kmer_count
+    // for (auto it = kmer_count.begin(); it != std::next(kmer_count.begin(), 1000) && it != kmer_count.end(); ++it) {
+    //     fprintf(stderr, "[%lu, %d]\n", it->first, it->second);
+    // }
 
-    
-    int32_t peak_kmer_count = 0;
-    // Extract all the kmer counts into a vector
-    std::vector<int32_t> counts;
-    for (const auto& kv : kmer_count) {
-        counts.push_back(kv.second);
-    }
-
-    // Sort in descending order
-    std::sort(counts.begin(), counts.end(), std::greater<int32_t>());
-
-    // Compute average of top N/2 values
-    size_t top_n = counts.size() / 2;
-    if (top_n > 0) {
-        int64_t sum = 0;
-        for (size_t i = 0; i < top_n; ++i) {
-            sum += counts[i];
-        }
-        peak_kmer_count = static_cast<int32_t>(sum / top_n);
-    }
-
-    // 1) set the homozygous‐vs‐heterozygous cutoff
-    float homo_fraction = 0.5f; 
-    int   homo_threshold = static_cast<int>(std::ceil(homo_fraction * peak_kmer_count));
-
-    // // pritnt peak_kmer_count and homo_fraction and homo_threshold
-    // std::cerr << " Homo Fraction : " << homo_fraction << " Peak kmer count : " <<  peak_kmer_count << " Homo threshold : " << homo_threshold << std::endl;
     // exit(0);
 
+
+    Read_hashes.clear();
+
+    // build {multiplicity, freq} table of kmers
+    std::map<int32_t, int32_t> kmer_freq;
+    std::map<int32_t, std::vector<uint64_t>> rev_kmer_freq;
+    for (const auto& kv : kmer_count) {
+        kmer_freq[kv.second] += 1;
+        rev_kmer_freq[kv.second].push_back(kv.first);
+    }
+
+    std::vector<HistBin> Hist_kmer; // {multiplicity, freq}
+    for (const auto& kv : kmer_freq) {
+        Hist_kmer.push_back({(int)kv.first, (double)kv.second});
+    }
+
+    // // print first 10 elements from Hist_kmer
+    // for (size_t i = 0; i < std::min((size_t)1000, Hist_kmer.size()); i++) {
+    //     fprintf(stderr, "[%d, %.2f]\n", Hist_kmer[i].multiplicity, Hist_kmer[i].freq);
+    // }
+
+    // find max_multiplicity and max_freq
+    int max_multiplicity = 0;
+    double max_freq = 0.0;
+    for (const auto& bin : Hist_kmer) {
+        if (bin.multiplicity > max_multiplicity) {
+            max_multiplicity = bin.multiplicity;
+        }
+        if (bin.freq > max_freq) {
+            max_freq = bin.freq;
+        }
+    }
+
+    // print max_multiplicity and max_freq
+    fprintf(stderr, "Max Multiplicity: %d, Max Frequency: %.2f\n", max_multiplicity, max_freq);
+
+    KGFitOptions opt;
+    opt.max_copy = max_multiplicity;
+    opt.max_x_use = max_freq;
+    opt.fit_error = true;
+    opt.fit_varw  = true;
+
+    auto res = KGFitterBO::fit(Hist_kmer, opt);
+    KmerGenieDiploidLike model(res.P);
+
+    // std::cerr << "best NLL="<<res.nll<<"\n"
+    //     << "u_v="<<res.P.u_v<<" (hom SD) sd_v="<<res.P.sd_v
+    //     << "\n(het VAR) var="<<res.P.var_w
+    //     << "\n(proportion het)p_d="<<res.P.p_d
+    //     << "\nzp_copy="<<res.P.zp_copy<<" zp_copy_het="<<res.P.zp_copy_het
+    //     << "\n(zipf exponent) s="<<res.P.err_shape
+    //     << "\nmax_copy="<<res.P.max_copy<<"\n";
+
+    fprintf(stderr, "[M::%s] Fitted model: best NLL=%.2f, u_v=%.2f (hom SD), sd_v=%.2f (het VAR), var_w=%.2f, p_d=%.2f, zp_copy=%d, zp_copy_het=%d, err_shape=%.2f, max_copy=%d\n",
+        __func__, res.nll, res.P.u_v, res.P.sd_v, res.P.var_w, res.P.p_d, res.P.zp_copy, res.P.zp_copy_het, res.P.err_shape, res.P.max_copy);
+
+    
     // 2) build two lookup sets
-    std::unordered_set<uint64_t> S_homo, S_hetero;
+    std::unordered_set<uint64_t> S_homo, S_hetero, S_ambiguous;
     S_homo.reserve(kmer_count.size());
     S_hetero.reserve(kmer_count.size());
-
-    for (auto &kv : kmer_count) {
-        if (kv.second > homo_threshold)
-            S_homo.insert(kv.first);
-        else
-            S_hetero.insert(kv.first);
+    S_ambiguous.reserve(kmer_count.size());
+    int32_t total_count = 0;
+    
+    KmerGenieDiploidLike M(res.P);
+    // classify a few multiplicities
+    for (int f = 1; f < max_multiplicity; f++) {
+        auto r = M.classify(f);
+        const char* L = (r.label==KGPosterior::HET?"HET":(r.label==KGPosterior::HOM?"HOM":"AMB"));
+        // std::cout << "f="<<f<<"  post[het,hom]=("<<r.p_het<<","<<r.p_hom<<")  "<<L<<"\n";
+        // fill S_homo, S_hetero, S_ambiguous with
+        if (r.label == KGPosterior::HOM) {
+            // rev_kmer_freq
+            for (auto& kmer : rev_kmer_freq[f]) {
+                S_homo.insert(kmer);
+                total_count++;
+            }
+        } else if (r.label == KGPosterior::HET) {
+            for (auto& kmer : rev_kmer_freq[f]) {
+                S_hetero.insert(kmer);
+                total_count++;
+            }
+        } else {
+            for (auto& kmer : rev_kmer_freq[f]) {
+                S_ambiguous.insert(kmer);
+                total_count++;
+            }
+        }
     }
+
+    // print the fraction of S_homo, S_hetero and S_ambiguous
+    fprintf(stderr, "[M::%s] Classification done. Homozygous: %.2f%%, Heterozygous: %.2f%%, Ambiguous: %.2f%%, Total kmers: %d\n",
+        __func__,
+        100.0 * S_homo.size() / total_count,
+        100.0 * S_hetero.size() / total_count,
+        100.0 * S_ambiguous.size() / total_count,
+        total_count);
 
     // before the loop, use plain ints
     int64_t total_kmers = 0;
     int64_t count_homo  = 0;
     int64_t count_hetero= 0;
+    int64_t count_ambiguous= 0;
 
-    #pragma omp parallel for reduction(+:total_kmers,count_homo,count_hetero) num_threads(num_threads)
+    #pragma omp parallel for reduction(+:total_kmers,count_homo,count_hetero,count_ambiguous) num_threads(num_threads)
     for (int32_t r = 0; r < count_sp_r; ++r) {
         auto it = Sp_R_hash.find(r);
         if (it == Sp_R_hash.end()) continue;
         uint64_t hash = it->second;
         bool is_homo = (S_homo.count(hash) != 0);
+        bool is_hetero = (S_hetero.count(hash) != 0);
+        bool is_ambiguous = (S_ambiguous.count(hash) != 0);
+
+        if (is_homo + is_hetero + is_ambiguous == 0 ) continue;
+
+        // check only one of is_homo, is_hetero, is_ambiguous is true
+        if (is_homo + is_hetero + is_ambiguous != 1) { // Sanity check
+            fprintf(stderr, "[M::%s] Error: k-mer %lu classified as multiple types\n",
+                __func__, hash);
+            // print multiple classified types as well like, homo, hetero and ambigous
+            fprintf(stderr, "[M::%s] k-mer %lu classified as homo: %d, hetero: %d, ambiguous: %d\n",
+                __func__, hash, is_homo, is_hetero, is_ambiguous);
+            exit(1);
+        }
 
         for (int32_t h = 0; h < num_walks; ++h) {
             if (paths[h].empty()) continue; // Just for sanity check
@@ -925,14 +1003,26 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
             int n = hits.size();
             total_kmers  += n;
             if (is_homo)  count_homo   += n;
-            else          count_hetero += n;
+            if (is_hetero)  count_hetero += n;
+            if (is_ambiguous)  count_ambiguous += n;
 
             #pragma omp critical
-            if (is_homo) { // don't fill not important
+            // if (is_homo) { // don't fill not important
+            //     auto &out = Anchor_hits_homo[r][h];
+            //     out.insert(out.end(), hits.begin(), hits.end());
+            // } else {
+            //     auto &out = Anchor_hits_hetero[r][h];
+            //     out.insert(out.end(), hits.begin(), hits.end());
+            // }
+
+            if (is_homo) {
                 auto &out = Anchor_hits_homo[r][h];
                 out.insert(out.end(), hits.begin(), hits.end());
-            } else {
+            } else if (is_hetero) {
                 auto &out = Anchor_hits_hetero[r][h];
+                out.insert(out.end(), hits.begin(), hits.end());
+            } else if (is_ambiguous) {
+                auto &out = Anchor_hits_ambiguous[r][h];
                 out.insert(out.end(), hits.begin(), hits.end());
             }
         }
