@@ -24,7 +24,7 @@ struct HistBin { int multiplicity; double freq; };
 
 struct KGFitOptions {
     // histogram usage
-    int   max_copy        = 6;
+    int   max_copy        = 20;
     int   max_x_use       = 200;
     int   smooth_win      = 7;
     bool  fit_error       = true;
@@ -34,8 +34,8 @@ struct KGFitOptions {
     double u_lo = 1,   u_hi = 20.0; // hom mean
     double sd_lo = 0.5,  sd_hi = 4.0; // hom sd
     double varw_lo = 0.5, varw_hi = 4.0;  // het variance
-    double pd_lo = 0.0,  pd_hi = 1.0; // proportion het
-    double pe_lo = 0.0,  pe_hi = 1.0; // proportion error (ambigous)
+    double pd_lo = 0.35,  pd_hi = 1.0; // proportion het
+    double pe_lo = 0.0,  pe_hi = 0.1; // proportion error (ambigous)
     double s_lo  = 1.01,  s_hi  = 4.0; // shape (exponent)
     double zp_lo = 1.01, zp_hi = 4.0; 
 
@@ -335,10 +335,7 @@ struct KGFitterBO {
 
         // parameters (note: initializer is in **global** namespace)
         bayesopt::Parameters bop = initialize_parameters_to_default();
-        bop.n_iterations = 150;
         bop.random_seed  = 42;
-        bop.noise        = 1e-6;
-        bop.verbose_level= 1;
 
         BOFunc model(dim, lb, ub, objective, bop);
 
