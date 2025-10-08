@@ -907,8 +907,8 @@ void ILP_index::ILP_function(std::vector<std::pair<std::string, std::string>> &i
     fprintf(stderr, "Max Multiplicity: %d, Max Frequency: %.2f\n", max_multiplicity, max_freq);
 
     KGFitOptions opt;
-    opt.max_copy = max_multiplicity;
-    opt.max_x_use = max_freq;
+    opt.max_x_use = max_multiplicity;
+	opt.u_hi = max_multiplicity;
     opt.fit_error = true;
     opt.fit_varw  = true;
 
