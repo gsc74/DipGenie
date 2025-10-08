@@ -7,8 +7,10 @@
 #include <cmath>
 #include <queue>
 #include <unordered_set>
-//#include "edlib.h"
-#include "misc.hpp"
+#include "edlib.h"
+#include "misc.h"
+#include "Classifier.hpp"
+#include "Fitter.hpp"
 #include <iomanip>
 #include <chrono>
 #include <sstream>
@@ -21,11 +23,11 @@ Approximator::Approximator(gfa_t *g) {
 KSEQ_INIT(gzFile, gzread)
 
 
-uint64_t hash128_to_64_(const std::string &str) {
+uint64_t hash128_to_64_(const std::string &str, int seed) {
     uint64_t hash_output[2]; // To store the 128-bit output
 
     // Hash the string using MurmurHash3_x64_128
-    MurmurHash3_x64_128(str.data(), str.length(), 0, hash_output);
+    MurmurHash3_x64_128(str.data(), str.length(), seed, hash_output);
 
     // Combine the two 64-bit parts of the 128-bit hash into a single 64-bit hash
     return hash_output[0] ^ hash_output[1]; // Simple XOR combination
@@ -102,13 +104,18 @@ void::Approximator::read_gfa()
 
     // Read walks
     if (g->n_walk > 0) is_gfa_v12 = true;
+    
     num_walks = g->n_walk; // count number of walks
+    
+    //num_walks = 10;
+
+
     haps.resize(n_vtx);
     paths.resize(num_walks);
     in_paths.resize(num_walks, std::vector<int32_t>(n_vtx, 0));
 
     // Fill the paths
-    for (size_t w = 0; w < g->n_walk; w++)
+    for (size_t w = 0; w < num_walks; w++)
     {
         std::string walk_name = std::string(g->walk[w].sample) + "." + std::to_string(g->walk[w].hap);
         hap_id2name.push_back(walk_name);
@@ -127,47 +134,654 @@ void::Approximator::read_gfa()
         }
     }
 
-    // compute tpological order with kahns algorithm
-    std::vector<int32_t> in_degree(n_vtx, 0);
-    for (int32_t i = 0; i < n_vtx; i++)
-    {
-        for (auto v: adj_list[i])
-        {
-            in_degree[v]++;
+    // // compute tpological order with kahns algorithm
+    // std::vector<int32_t> in_degree(n_vtx, 0);
+    // for (int32_t i = 0; i < n_vtx; i++)
+    // {
+    //     for (auto v: adj_list[i])
+    //     {
+    //         in_degree[v]++;
+    //     }
+    // }
+
+    // std::queue<int32_t> q;
+    // for (int32_t i = 0; i < n_vtx; i++)
+    // {
+    //     if (in_degree[i] == 0)
+    //     {
+    //         q.push(i);
+    //     }
+    // }
+
+    // while (!q.empty())
+    // {
+    //     int32_t u = q.front();
+    //     q.pop();
+    //     top_order.push_back(u);
+    //     for (auto v: adj_list[u])
+    //     {
+    //         in_degree[v]--;
+    //         if (in_degree[v] == 0)
+    //         {
+    //             q.push(v);
+    //         }
+    //     }
+    // }
+
+    // // create map for topological order
+    // top_order_map.resize(n_vtx);
+    // for (int32_t i = 0; i < top_order.size(); i++)
+    // {
+    //     top_order_map[top_order[i]] = i;
+    // }
+
+        const int32_t V = n_vtx; // forward-strand vertex count (already halved above)
+
+    // 1) Seed with earliest position on any walk.
+    //    Use int64_t to be safe on very long walks.
+    const int64_t INF = std::numeric_limits<int64_t>::max()/4;
+    std::vector<int64_t> pos(V, INF);
+
+    for (size_t w = 0; w < paths.size(); ++w) {
+        const auto &pw = paths[w];
+        for (int64_t t = 0; t < (int64_t)pw.size(); ++t) {
+            int32_t vtx = pw[t];
+            if (vtx < 0 || vtx >= V) continue;
+            if (t < pos[vtx]) pos[vtx] = t; // earliest column where it appears
         }
     }
 
-    std::queue<int32_t> q;
-    for (int32_t i = 0; i < n_vtx; i++)
+    // Any vertex that never appears in any walk: give it a stable default.
+    // We’ll drop them at the end or park them after all walked columns.
+    // Here we set to a large bucket that will be densified later.
+    int64_t fallback_start = 0;
     {
-        if (in_degree[i] == 0)
-        {
-            q.push(i);
-        }
+        // If we have any seeded positions, set fallback to max seeded + 1; else 0
+        int64_t max_seed = -1;
+        for (int32_t v = 0; v < V; ++v) if (pos[v] != INF) max_seed = std::max(max_seed, pos[v]);
+        fallback_start = (max_seed >= 0 ? max_seed + 1 : 0);
+        for (int32_t v = 0; v < V; ++v) if (pos[v] == INF) pos[v] = fallback_start; // park them after seen columns
     }
 
-    while (!q.empty())
-    {
-        int32_t u = q.front();
-        q.pop();
-        top_order.push_back(u);
-        for (auto v: adj_list[u])
-        {
-            in_degree[v]--;
-            if (in_degree[v] == 0)
-            {
-                q.push(v);
+    // 2) Enforce monotonicity along each walk:
+    //    For each consecutive pair (u -> v) on a walk, require pos[v] >= pos[u] + 1.
+    //    Iterate until convergence (cap iterations to V to avoid pathological cycles).
+    bool changed = true;
+    int iter = 0, iter_cap = std::max(10, V); // generous cap; walks are linear so this converges fast
+    while (changed && iter++ < iter_cap) {
+        changed = false;
+        for (size_t w = 0; w < paths.size(); ++w) {
+            const auto &pw = paths[w];
+            for (size_t t = 1; t < pw.size(); ++t) {
+                int32_t u = pw[t-1], v = pw[t];
+                if (u < 0 || u >= V || v < 0 || v >= V) continue;
+                int64_t need = pos[u] + 1;
+                if (pos[v] < need) { pos[v] = need; changed = true; }
             }
         }
     }
 
-    // create map for topological order
-    top_order_map.resize(n_vtx);
-    for (int32_t i = 0; i < top_order.size(); i++)
-    {
-        top_order_map[top_order[i]] = i;
+    // 3) Densify columns: map (possibly gappy) pos[] to a compact 0..K-1.
+    std::vector<std::pair<int64_t,int32_t>> by_pos;
+    by_pos.reserve(V);
+    for (int32_t v = 0; v < V; ++v) by_pos.emplace_back(pos[v], v);
+    std::sort(by_pos.begin(), by_pos.end()); // primary by column, then vertex id
+
+    // Assign dense ranks
+    std::vector<int32_t> dense_pos(V, -1);
+    int32_t cur_rank = -1;
+    int64_t prev_col = std::numeric_limits<int64_t>::min();
+    for (auto &p : by_pos) {
+        int64_t col = p.first;
+        int32_t v = p.second;
+        if (col != prev_col) { ++cur_rank; prev_col = col; }
+        dense_pos[v] = cur_rank;
     }
+    int32_t K = cur_rank + 1; // total number of MSA-like columns that contain at least one vertex
+
+    // Build the final "top_order" replacement using these dense positions.
+    top_order.clear();
+    top_order.reserve(V);
+    for (auto &p : by_pos) top_order.push_back(p.second);
+
+    // Build map: vertex -> global order index (0..V-1), i.e., rank in top_order
+    top_order_map.assign(V, -1);
+    for (int32_t i = 0; i < (int32_t)top_order.size(); ++i)
+        top_order_map[top_order[i]] = i;
+
+    // Optionally expose the per-vertex MSA column if you want it directly:
+    // (You can keep this around as a member if helpful.)
+    // this->msa_column = std::move(dense_pos);
+
+    // --- Optional: build "skip edges" per walk (jumps over >= 1 columns) ---
+    // For each consecutive pair on a walk, if dense_pos jumps by > 1, record a skip.
+    // This can help you explicitly model gaps in your haplotype paths.
+    struct SkipEdge { int32_t v_from, v_to; int32_t col_from, col_to; int32_t skip_len; };
+    std::vector<SkipEdge> skip_edges; skip_edges.reserve(V);
+
+    for (size_t w = 0; w < paths.size(); ++w) {
+        const auto &pw = paths[w];
+        for (size_t t = 1; t < pw.size(); ++t) {
+            int32_t u = pw[t-1], v = pw[t];
+            int32_t cu = dense_pos[u], cv = dense_pos[v];
+            if (cu >= 0 && cv >= 0 && cv > cu + 1) {
+                skip_edges.push_back({u, v, cu, cv, cv - cu - 1});
+            }
+        }
+    }
+
+    // If you want to replace/augment adj_list with edges in MSA order:
+    //  - You can keep your existing graph edges as-is.
+    //  - Or you can build a new adjacency that uses "columns" (dense_pos) as the sort key
+    //    and includes skip_edges for haplotype gap jumps when cv > cu + 1.
+    //
+    // Example: stable-sort each adjacency by the MSA order of targets.
+    for (int32_t u = 0; u < V; ++u) {
+        auto &nei = adj_list[u];
+        std::sort(nei.begin(), nei.end(), [&](int32_t a, int32_t b){
+            int32_t ca = dense_pos[a], cb = dense_pos[b];
+            if (ca != cb) return ca < cb;
+            return a < b;
+        });
+    }
+
+    // From this point on, treat "top_order" and "top_order_map" as the MSA-like order.
+    // top_order is sorted by global column, and top_order_map[v] gives its order index.
 }
+
+
+void remove_duplicates(std::vector<int>& vec) {
+    std::unordered_set<int> seen;
+    std::vector<int> result;
+    for (int num : vec) {
+        if (seen.find(num) == seen.end()) {
+            seen.insert(num);
+            result.push_back(num);
+        }
+    }
+    vec = std::move(result);
+}
+
+
+std::tuple<int,int,std::string,std::string>
+Approximator::optimal_diploid_solver(Graph g, int R, const std::vector<bool>& homo_bv) {
+
+    try {
+        // Assumptions match your pipeline after compactify+reorder:
+        // source = 0, sink = n-1, DAG.
+        const int n = (int)g.adj_list.size();
+        if (n <= 1) return {0,0,"",""};
+        const int s = 0, t = n-1;
+
+        // ---------- Build edge list + incidence ----------
+        struct E { int u,v,w; };
+        std::vector<E> edges;
+        edges.reserve(1<<20);
+        std::vector<std::vector<int>> in(n), out(n);
+        for (int u = 0; u < n; ++u) {
+            for (auto &p : g.adj_list[u]) {
+                int v = p.first, w = p.second;
+                int id = (int)edges.size();
+                edges.push_back({u,v,w});
+                out[u].push_back(id);
+                in[v].push_back(id);
+            }
+        }
+
+        // ---------- Color remap (original color ids → 0..C-1) ----------
+        std::unordered_map<int,int> cmap;
+        cmap.reserve(1<<18);
+        std::vector<std::vector<int>> vcols(n);
+        std::vector<char> is_homo; // length C, filled after remap
+
+        auto remap_color = [&](int c)->int {
+            auto it = cmap.find(c);
+            if (it != cmap.end()) return it->second;
+            int nxt = (int)cmap.size();
+            cmap.emplace(c, nxt);
+            is_homo.push_back((c >= 0 && (size_t)c < homo_bv.size() && homo_bv[c]) ? 1 : 0);
+            return nxt;
+        };
+
+        for (int v = 0; v < n; ++v) {
+            for (int c : g.color[v]) {
+                if (c < 0) continue;           // ignore sentinel
+                vcols[v].push_back(remap_color(c));
+            }
+            std::sort(vcols[v].begin(), vcols[v].end());
+            vcols[v].erase(std::unique(vcols[v].begin(), vcols[v].end()), vcols[v].end());
+        }
+        const int C = (int)cmap.size();
+
+        // ---------- Model ----------
+        GRBEnv env; 
+        GRBModel m(env); 
+        m.set(GRB_StringAttr_ModelName, "optimal_diploid");
+
+        // Path-1 vars
+        std::vector<GRBVar> f1(edges.size());          // edge-use
+        std::vector<GRBVar> z1(n);                     // vertex-use
+        for (int e = 0; e < (int)edges.size(); ++e){
+            if(edges[e].w > 0){
+                f1[e] = m.addVar(0,1,0,GRB_BINARY,"f1_"+std::to_string(e));
+            }else{
+                //f1[e] = m.addVar(0,1,0,GRB_CONTINUOUS,"f2_"+std::to_string(e));
+                f1[e] = m.addVar(0,1,0,GRB_BINARY,"f1_"+std::to_string(e));
+            }
+        }
+        for (int v = 0; v < n; ++v){
+            z1[v] = m.addVar(0,1,0,GRB_BINARY,"z1_"+std::to_string(v));
+        }                    
+
+        // Path-2 vars
+        std::vector<GRBVar> f2(edges.size());
+        std::vector<GRBVar> z2(n);
+        for (int e = 0; e < (int)edges.size(); ++e) {
+            if(edges[e].w > 0){
+                f2[e] = m.addVar(0,1,0,GRB_BINARY,"f2_"+std::to_string(e));
+            }else{
+                //f2[e] = m.addVar(0,1,0,GRB_CONTINUOUS,"f2_"+std::to_string(e));
+                f2[e] = m.addVar(0,1,0,GRB_BINARY,"f2_"+std::to_string(e));
+            }
+        }
+        for (int v = 0; v < n; ++v){
+            z2[v] = m.addVar(0,1,0,GRB_BINARY,"z2_"+std::to_string(v));
+        }
+
+        // Color coverage vars
+        std::vector<GRBVar> y1(C), y2(C);              // covered on path1/2
+        std::vector<GRBVar> both(C);                   // both paths (AND)
+        for (int c = 0; c < C; ++c) {
+            y1[c]  = m.addVar(0,1,0,GRB_CONTINUOUS,"y1_"+std::to_string(c));
+            y2[c]  = m.addVar(0,1,0,GRB_CONTINUOUS,"y2_"+std::to_string(c));
+            both[c]= m.addVar(0,1,0,GRB_CONTINUOUS,"b_"+std::to_string(c));
+        }
+        m.update();
+
+        auto sum_edges = [&](const std::vector<int>& idxs, const std::vector<GRBVar>& f)->GRBLinExpr{
+            GRBLinExpr e = 0.0; for (int id : idxs) e += f[id]; return e;
+        };
+
+        // ---------- Path constraints (for each path separately) ----------
+        std::cout << "Building path constraints" << std::endl;
+        // Path 1
+        m.addConstr(sum_edges(out[s], f1) == 1, "p1_s_out");
+        m.addConstr(sum_edges(in[s],  f1) == 0, "p1_s_in");
+        m.addConstr(z1[s] == 1, "p1_zs");
+
+        m.addConstr(sum_edges(in[t],  f1) == 1, "p1_t_in");
+        m.addConstr(sum_edges(out[t], f1) == 0, "p1_t_out");
+        m.addConstr(z1[t] == 1, "p1_zt");
+
+        for (int v = 0; v < n; ++v) if (v != s && v != t) {
+            auto in_v  = sum_edges(in[v],  f1);
+            auto out_v = sum_edges(out[v], f1);
+            m.addConstr(in_v == out_v,                  "p1_flow_"+std::to_string(v));
+            m.addConstr(in_v == z1[v],                  "p1_link_"+std::to_string(v));
+            m.addConstr(in_v  <= 1,                     "p1_incap_"+std::to_string(v));
+            m.addConstr(out_v <= 1,                     "p1_outcap_"+std::to_string(v));
+        }
+        m.addConstr(sum_edges(out[s], f1) <= 1, "p1_outcap_s");
+        m.addConstr(sum_edges(in[t],  f1) <= 1, "p1_incap_t");
+
+        // Path 2
+        m.addConstr(sum_edges(out[s], f2) == 1, "p2_s_out");
+        m.addConstr(sum_edges(in[s],  f2) == 0, "p2_s_in");
+        m.addConstr(z2[s] == 1, "p2_zs");
+
+        m.addConstr(sum_edges(in[t],  f2) == 1, "p2_t_in");
+        m.addConstr(sum_edges(out[t], f2) == 0, "p2_t_out");
+        m.addConstr(z2[t] == 1, "p2_zt");
+
+        for (int v = 0; v < n; ++v) if (v != s && v != t) {
+            auto in_v  = sum_edges(in[v],  f2);
+            auto out_v = sum_edges(out[v], f2);
+            m.addConstr(in_v == out_v,                  "p2_flow_"+std::to_string(v));
+            m.addConstr(in_v == z2[v],                  "p2_link_"+std::to_string(v));
+            m.addConstr(in_v  <= 1,                     "p2_incap_"+std::to_string(v));
+            m.addConstr(out_v <= 1,                     "p2_outcap_"+std::to_string(v));
+        }
+        m.addConstr(sum_edges(out[s], f2) <= 1, "p2_outcap_s");
+        m.addConstr(sum_edges(in[t],  f2) <= 1, "p2_incap_t");
+
+        // ---------- Budget: sum w_e(f1+f2) ≤ R ----------
+        std::cout << "Adding budget constraint" << std::endl;
+        GRBLinExpr budget = 0.0;
+        for (int e = 0; e < (int)edges.size(); ++e) if (edges[e].w > 0) {
+            budget += edges[e].w * f1[e];
+            budget += edges[e].w * f2[e];
+        }
+        m.addConstr(budget <= R, "recomb_budget");
+
+        // ---------- Color coverage linking ----------
+        // yk_c ≤ Σ_{v has c} zk_v
+
+        std::cout << "Adding color coverage linking" << std::endl;
+
+        // One expression per color; default-constructed GRBLinExpr is 0.
+        std::vector<GRBLinExpr> cover1(C), cover2(C);
+
+        // Sweep vertices once and add their contribution to every color they carry.
+        for (int v = 0; v < n; ++v) {
+            if (vcols[v].empty()) continue;              // no colors on this vertex
+            // vcols[v] already holds unique, sorted color ids for v
+            for (int cid : vcols[v]) {
+                cover1[cid] += z1[v];
+                cover2[cid] += z2[v];
+            }
+
+        }
+
+        // Now add the linking constraints per color once.
+        for (int c = 0; c < C; ++c) {
+            m.addConstr(y1[c] <= cover1[c], "y1_le_cov_" + std::to_string(c));
+            m.addConstr(y2[c] <= cover2[c], "y2_le_cov_" + std::to_string(c));
+        }
+
+
+        // both_c = AND(y1_c, y2_c)
+        for (int c = 0; c < C; ++c) {
+            m.addConstr(both[c] <= y1[c], "both_le_y1_"+std::to_string(c));
+            m.addConstr(both[c] <= y2[c], "both_le_y2_"+std::to_string(c));
+            m.addConstr(both[c] >= y1[c] + y2[c] - 1, "both_lb_"+std::to_string(c));
+        }
+
+
+        // ---------- Objective ----------
+        GRBLinExpr obj = 0.0;
+        for (int c = 0; c < C; ++c) {
+            if (is_homo[c]) obj += both[c];  // count intersection for homo
+            else            obj += y1[c] + y2[c] - 2*both[c];  // count XOR for hetero
+        }
+        m.setObjective(obj, GRB_MAXIMIZE);
+        m.update();
+        std::cout << "Model built" << std::endl;
+
+
+        std::cout << "Finding initial solution" << std::endl;
+        // ---- helper: Dijkstra by recombination weight (nonnegative) ----
+        auto shortest_path_by_weight = [&](int src, int dst)
+            -> std::pair<std::vector<int>, long long> {
+            const long long INF = (1LL<<60);
+            std::vector<long long> dist(n, INF);
+            std::vector<int> parent(n, -1);
+            using P = std::pair<long long,int>;
+            std::priority_queue<P, std::vector<P>, std::greater<P>> pq;
+
+            dist[src] = 0; pq.push({0, src});
+            while (!pq.empty()) {
+                auto [d,u] = pq.top(); pq.pop();
+                if (d != dist[u]) continue;
+                if (u == dst) break;
+                for (int eid : out[u]) {
+                    int v = edges[eid].v;
+                    int w = edges[eid].w;  // recombination cost (>=0)
+                    if (dist[v] > d + w) {
+                        dist[v]  = d + w;
+                        parent[v]= u;
+                        pq.push({dist[v], v});
+                    }
+                }
+            }
+            std::vector<int> path;
+            if (dist[dst] == INF) return {path, (long long)INF};
+            // rebuild
+            for (int v = dst; v != -1; v = parent[v]) path.push_back(v);
+            std::reverse(path.begin(), path.end());
+            return {path, dist[dst]};
+        };
+
+        // ---- helper: convert vertex path → edge id list in *this* model ----
+        auto edge_ids_along = [&](const std::vector<int>& p) {
+            std::vector<int> eid_list;
+            for (int i = 0; i+1 < (int)p.size(); ++i) {
+                int u = p[i], v = p[i+1];
+                int used = -1;
+                for (int eid : out[u]) if (edges[eid].v == v) { used = eid; break; }
+                if (used == -1) { eid_list.clear(); return eid_list; } // should not happen
+                eid_list.push_back(used);
+            }
+            return eid_list;
+        };
+
+        // ---- helper: collect colors on a vertex path ----
+        auto colors_on_path = [&](const std::vector<int>& p) {
+            std::vector<char> used(C, 0);
+            for (int v : p) {
+                for (int cid : vcols[v]) used[cid] = 1;
+            }
+            return used; // 0/1 per color
+        };
+
+        // ------------------------------------------------------------------
+        // Try to build a *feasible* start with positive objective
+        // ------------------------------------------------------------------
+        {
+            // 1) shortest s→t path
+            auto [Pmin, wmin] = shortest_path_by_weight(s, t);
+
+            // quick exit if no s→t path
+            if (!Pmin.empty() && wmin != (long long)(1LL<<60)) {
+
+                // 2) need both paths; simplest feasible: duplicate the same path
+                bool feasible_budget = (2LL * wmin <= (long long)R);
+
+                if (feasible_budget) {
+                    // Initialize all integer vars to 0 start by default
+                    for (int e = 0; e < (int)edges.size(); ++e) {
+                        f1[e].set(GRB_DoubleAttr_Start, 0.0);
+                        f2[e].set(GRB_DoubleAttr_Start, 0.0);
+                    }
+                    for (int v = 0; v < n; ++v) {
+                        z1[v].set(GRB_DoubleAttr_Start, 0.0);
+                        z2[v].set(GRB_DoubleAttr_Start, 0.0);
+                    }
+                    for (int c = 0; c < C; ++c) {
+                        y1[c].set(GRB_DoubleAttr_Start, 0.0);
+                        y2[c].set(GRB_DoubleAttr_Start, 0.0);
+                        both[c].set(GRB_DoubleAttr_Start, 0.0);
+                    }
+
+                    // 3) set edges/vertices on P1 and P2
+                    auto Epath = edge_ids_along(Pmin);
+                    for (int eid : Epath) { f1[eid].set(GRB_DoubleAttr_Start, 1.0); }
+                    for (int v : Pmin)    { z1[v].set(GRB_DoubleAttr_Start, 1.0);  }
+
+                    // duplicate for path 2
+                    for (int eid : Epath) { f2[eid].set(GRB_DoubleAttr_Start, 1.0); }
+                    for (int v : Pmin)    { z2[v].set(GRB_DoubleAttr_Start, 1.0);  }
+
+                    // 4) set color vars (y1,y2,both); positive objective expected
+                    auto cov = colors_on_path(Pmin);
+                    bool any_homo = false, any_hetero = false;
+                    for (int c = 0; c < C; ++c) {
+                        double y = cov[c] ? 1.0 : 0.0;
+                        y1[c].set(GRB_DoubleAttr_Start, y);
+                        y2[c].set(GRB_DoubleAttr_Start, y);
+                        // both = AND(y1,y2) = y in this duplication
+                        both[c].set(GRB_DoubleAttr_Start, y);
+                        if (y) {
+                            if (is_homo[c]) any_homo = true;
+                            else            any_hetero = true; // XOR will be 0 for identical paths, but homo contributes
+                        }
+                    }
+
+                    // This incumbent is fully feasible:
+                    // - flow constraints satisfied (one s→t per path)
+                    // - budget: 2*wmin ≤ R
+                    // - color linking satisfied by construction
+                    // Objective is positive unless path has no homo colors at all.
+
+                    // If you really want to *force* a positive objective even when no homo colors appear,
+                    // you can *try* a cheap alternate P2 that differs on a 0-cost branch to capture a hetero color:
+                    // (best-effort; safe to skip if you don’t need it)
+                    if (!any_homo) {
+                        // Tiny local tweak: scan a vertex on Pmin for an alternative 0-cost outgoing that
+                        // leads to a vertex carrying a hetero color, then reconnect to t (via shortest path).
+                        // Only attempt a few steps to keep start-generation cheap.
+                        const int MAX_TRIALS = 32;
+                        int trials = 0;
+                        bool improved = false;
+                        for (int i = 0; i+1 < (int)Pmin.size() && trials < MAX_TRIALS; ++i, ++trials) {
+                            int u = Pmin[i];
+                            for (int eid : out[u]) {
+                                int v = edges[eid].v;
+                                int w = edges[eid].w;
+                                if (w != 0 || v == Pmin[i+1]) continue; // look only at zero-cost detours
+                                // quick hetero check at 'v'
+                                bool hits_hetero = false;
+                                for (int cid : vcols[v]) if (!is_homo[cid]) { hits_hetero = true; break; }
+                                if (!hits_hetero) continue;
+
+                                // try reconnect v → t with shortest path
+                                auto [tail, wtail] = shortest_path_by_weight(v, t);
+                                if (tail.empty()) continue;
+
+                                long long w2 = wmin /*prefix to u*/ + 0 /*u->v*/ + wtail;
+                                if (w2 + wmin > (long long)R) continue; // respect budget
+
+                                // build P2: prefix [0..i], then v, then tail (excluding its first which is v)
+                                std::vector<int> P2 = Pmin;
+                                P2.resize(i+1);
+                                P2.push_back(v);
+                                P2.insert(P2.end(), tail.begin()+1, tail.end());
+
+                                // reset P2 starts to 0, then set along new P2
+                                for (int e = 0; e < (int)edges.size(); ++e) f2[e].set(GRB_DoubleAttr_Start, 0.0);
+                                for (int vtx = 0; vtx < n; ++vtx)          z2[vtx].set(GRB_DoubleAttr_Start, 0.0);
+                                auto E2 = edge_ids_along(P2);
+                                for (int ee : E2) f2[ee].set(GRB_DoubleAttr_Start, 1.0);
+                                for (int vtx : P2) z2[vtx].set(GRB_DoubleAttr_Start, 1.0);
+
+                                // refresh color starts for y2 / both (keep y1 from Pmin)
+                                auto cov2 = colors_on_path(P2);
+                                for (int c = 0; c < C; ++c) {
+                                    double y2v = cov2[c] ? 1.0 : 0.0;
+                                    y2[c].set(GRB_DoubleAttr_Start, y2v);
+                                    // both = AND(y1,y2)
+                                    double y1v = cov[c] ? 1.0 : 0.0;
+                                    double bv  = (y1v > 0.5 && y2v > 0.5) ? 1.0 : 0.0;
+                                    both[c].set(GRB_DoubleAttr_Start, bv);
+                                }
+                                improved = true;
+                                break;
+                            }
+                            if (improved) break;
+                        }
+                    }
+
+                    // Finally, tell Gurobi we gave a start:
+                    m.update(); // not strictly required, but tidy before optimize()
+
+                } else {
+                    // Not enough budget for two copies of the cheapest path.
+                    // Provide a *partial* start with only path 1.
+                    // Gurobi may repair/complete it; if not, start is ignored.
+                    for (int e = 0; e < (int)edges.size(); ++e) {
+                        f1[e].set(GRB_DoubleAttr_Start, 0.0);
+                        f2[e].set(GRB_DoubleAttr_Start, GRB_UNDEFINED);
+                    }
+                    for (int v = 0; v < n; ++v) {
+                        z1[v].set(GRB_DoubleAttr_Start, 0.0);
+                        z2[v].set(GRB_DoubleAttr_Start, GRB_UNDEFINED);
+                    }
+                    for (int c = 0; c < C; ++c) {
+                        y1[c].set(GRB_DoubleAttr_Start, 0.0);
+                        y2[c].set(GRB_DoubleAttr_Start, GRB_UNDEFINED);
+                        both[c].set(GRB_DoubleAttr_Start, GRB_UNDEFINED);
+                    }
+                    auto Epath = edge_ids_along(Pmin);
+                    for (int eid : Epath) f1[eid].set(GRB_DoubleAttr_Start, 1.0);
+                    for (int v : Pmin)    z1[v].set(GRB_DoubleAttr_Start, 1.0);
+                    auto cov = colors_on_path(Pmin);
+                    for (int c = 0; c < C; ++c) y1[c].set(GRB_DoubleAttr_Start, cov[c] ? 1.0 : 0.0);
+                    // both remains undefined; objective may still be positive from y1 terms if you use XOR inline
+                    m.update();
+                }
+            } else {
+                // No s→t path exists; leave everything undefined (or zeros) — start is skipped.
+                for (int e = 0; e < (int)edges.size(); ++e) {
+                    f1[e].set(GRB_DoubleAttr_Start, GRB_UNDEFINED);
+                    f2[e].set(GRB_DoubleAttr_Start, GRB_UNDEFINED);
+                }
+                for (int v = 0; v < n; ++v) {
+                    z1[v].set(GRB_DoubleAttr_Start, GRB_UNDEFINED);
+                    z2[v].set(GRB_DoubleAttr_Start, GRB_UNDEFINED);
+                }
+                for (int c = 0; c < C; ++c) {
+                    y1[c].set(GRB_DoubleAttr_Start, GRB_UNDEFINED);
+                    y2[c].set(GRB_DoubleAttr_Start, GRB_UNDEFINED);
+                    both[c].set(GRB_DoubleAttr_Start, GRB_UNDEFINED);
+                }
+                m.update();
+            }
+        }
+
+        m.optimize();
+        // int stat = m.get(GRB_IntAttr_Status);
+        // if (stat != GRB_OPTIMAL && stat != GRB_TIME_LIMIT) {
+        //     std::cerr << "[optimal_diploid_solver] Gurobi status = " << stat << "\n";
+        // }
+
+        // ---------- Extract both paths ----------
+        auto extract_path = [&](const std::vector<GRBVar>& f)->std::vector<int> {
+            std::vector<std::vector<int>> nxt(n);
+            for (int e = 0; e < (int)edges.size(); ++e)
+                if (f[e].get(GRB_DoubleAttr_X) > 0.5) nxt[edges[e].u].push_back(edges[e].v);
+
+            std::vector<int> p; p.push_back(s);
+            int u = s, guard = 0;
+            while (u != t && guard++ <= n) {
+                if (nxt[u].empty()) break;
+                u = nxt[u][0];
+                p.push_back(u);
+            }
+            if (p.back() != t)
+                std::cerr << "[optimal_diploid_solver] warning: path did not reach sink\n";
+            return p;
+        };
+
+        auto P1 = extract_path(f1);
+        auto P2 = extract_path(f2);
+
+        // recombination counts
+        auto count_recomb = [&](const std::vector<GRBVar>& f)->int {
+            int rsum = 0;
+            for (int e = 0; e < (int)edges.size(); ++e)
+                if (edges[e].w > 0 && f[e].get(GRB_DoubleAttr_X) > 0.5) ++rsum;
+            return rsum;
+        };
+        int r1 = count_recomb(f1);
+        int r2 = count_recomb(f2);
+
+        // Map expanded → original vertices, dedup like your code, then to strings
+        auto to_original_vec = [&](const std::vector<int>& path)->std::vector<int> {
+            std::vector<int> orig;
+            for (int u : path)
+                for (int uo : g.original_vertex[u]) orig.push_back(uo);
+            remove_duplicates(orig);        // you already have this helper
+            return orig;
+        };
+        auto P1_orig = to_original_vec(P1);
+        auto P2_orig = to_original_vec(P2);
+
+        std::string s1, s2;
+        for (int uo : P1_orig) s1 += node_seq[uo];
+        for (int uo : P2_orig) s2 += node_seq[uo];
+
+        return {r1, r2, std::move(s1), std::move(s2)};
+    }
+    catch (GRBException& e) {
+        std::cerr << "[optimal_diploid_solver] Gurobi exception: "
+                  << e.getMessage() << " (code " << e.getErrorCode() << ")\n";
+    }
+    catch (std::exception& e) {
+        std::cerr << "[optimal_diploid_solver] std::exception: " << e.what() << "\n";
+    }
+    return {0,0,"",""};
+}
+
+
 
 
 // Read the reads
@@ -188,8 +802,60 @@ void Approximator::read_ip_reads(std::vector<std::pair<std::string, std::string>
     gzclose(fp);
 }
 
+// used only in validation step
+std::vector<uint64_t> Approximator::index_string(std::string haplotype) {
+    std::vector<uint64_t> kmer_index;
+
+    // Convert to uppercase
+    std::transform(haplotype.begin(), haplotype.end(), haplotype.begin(), ::toupper);
+    size_t hap_size = haplotype.size();
+
+    if (hap_size < window + k_mer - 1) return kmer_index;
+
+
+    uint64_t prev_hash = UINT64_MAX; // Initialize to the maximum possible value
+
+    // Deque to store k-mers and their positions
+    std::deque<std::pair<std::string, int32_t>> window_deque;
+
+    for (int32_t i = 0; i <= hap_size - k_mer; ++i) {
+        // Extract the forward and reverse k-mers
+        std::string fwd_kmer = haplotype.substr(i, k_mer);
+        std::string rev_kmer = reverse_strand_(fwd_kmer);
+
+        // Choose the lexicographically smallest k-mer
+        std::string min_kmer = std::min(fwd_kmer, rev_kmer);
+
+        // Remove elements from the back of the deque if they are larger than the current k-mer
+        while (!window_deque.empty() && window_deque.back().first >= min_kmer) {
+            window_deque.pop_back();
+        }
+
+        // Add current element at the back of the deque
+        window_deque.emplace_back(min_kmer, i);
+
+        // Remove elements from the front if they are out of the window
+        if (!window_deque.empty() && window_deque.front().second <= i - window) {
+            window_deque.pop_front();
+        }
+
+        // Process the minimizer once the window is fully populated
+        if (i >= window - 1) {  
+            std::string best_kmer = window_deque.front().first;
+            // different seed than earlier
+            uint64_t best_hash = hash128_to_64_(best_kmer.c_str(),1);
+            if (best_hash != prev_hash) {
+                prev_hash = best_hash;
+                kmer_index.emplace_back(best_hash);
+            }
+        }
+    }
+
+    return kmer_index;
+}
 
 std::vector<std::pair<uint64_t, Anchor>> Approximator::index_kmers(int32_t hap) {
+
     std::vector<std::pair<uint64_t, Anchor>> kmer_index;
     std::string haplotype;
 
@@ -221,8 +887,8 @@ std::vector<std::pair<uint64_t, Anchor>> Approximator::index_kmers(int32_t hap) 
     for (int32_t i = 0; i <= hap_size - k_mer; ++i) {
         // Extract the forward and reverse k-mers
         std::string fwd_kmer = haplotype.substr(i, k_mer);
-        std::string rev_kmer = reverse_strand_(fwd_kmer);
 
+        std::string rev_kmer = reverse_strand_(fwd_kmer);
         // Choose the lexicographically smallest k-mer
         std::string min_kmer = std::min(fwd_kmer, rev_kmer);
 
@@ -242,7 +908,8 @@ std::vector<std::pair<uint64_t, Anchor>> Approximator::index_kmers(int32_t hap) 
         // Process the minimizer once the window is fully populated
         if (i >= window - 1) {  
             std::string best_kmer = window_deque.front().first;
-            uint64_t best_hash = hash128_to_64_(best_kmer.c_str());
+            //different seed from earlier
+            uint64_t best_hash = hash128_to_64_(best_kmer.c_str(),0);
             if (best_hash != prev_hash) {
                 prev_hash = best_hash;
 
@@ -261,7 +928,6 @@ std::vector<std::pair<uint64_t, Anchor>> Approximator::index_kmers(int32_t hap) 
                         unique_vtxs_vec.push_back(vtx_idx);
                     }
                 }
-
                 // sort this by topological order
                 std::sort(unique_vtxs_vec.begin(), unique_vtxs_vec.end(), [&](int32_t a, int32_t b) {
                     return top_order_map[a] < top_order_map[b];
@@ -273,12 +939,11 @@ std::vector<std::pair<uint64_t, Anchor>> Approximator::index_kmers(int32_t hap) 
             }
         }
     }
-
     return kmer_index;
 }
 
 
-std::set<uint64_t> Approximator::compute_hashes(std::string &read_seq) {
+std::set<uint64_t> Approximator::compute_hashes(std::string &read_seq, int seed) {
     // Convert to uppercase
     std::transform(read_seq.begin(), read_seq.end(), read_seq.begin(), ::toupper);
 
@@ -315,7 +980,7 @@ std::set<uint64_t> Approximator::compute_hashes(std::string &read_seq) {
         // Only insert the hash if it is different from the previous hash
         if (i >= window - 1) {  // Once we reach the window size
             std::string best_kmer = window_deque.front().first;
-            uint64_t best_hash = hash128_to_64_(best_kmer.c_str());
+            uint64_t best_hash = hash128_to_64_(best_kmer.c_str(), seed);
             if (best_hash != prev_hash) {
                 read_hashes.insert(best_hash);
                 prev_hash = best_hash;
@@ -360,18 +1025,31 @@ std::vector<std::vector<std::vector<int32_t>>> Approximator::compute_anchors(std
     return anchors;
 }
 
-
-
-void remove_duplicates(std::vector<int>& vec) {
-    std::unordered_set<int> seen;
-    std::vector<int> result;
-    for (int num : vec) {
-        if (seen.find(num) == seen.end()) {
-            seen.insert(num);
-            result.push_back(num);
+// used only in validation step
+std::vector<uint64_t> Approximator::compute_minimizer_hits(std::vector<uint64_t> &minimizers, std::map<uint64_t, int32_t> &read_hashes)
+{
+    std::vector<uint64_t> hits;
+    std::vector<std::vector<uint64_t>> local_hits(num_threads);
+    #pragma omp parallel for num_threads(num_threads)
+    for (int64_t i = 0; i < minimizers.size(); i++)
+    {
+        int32_t tid = omp_get_thread_num();
+        auto minimizer  = minimizers[i];
+        if (read_hashes.find(minimizer) != read_hashes.end()) // Found a match
+        {
+            local_hits[tid].push_back(minimizer);
         }
     }
-    vec = std::move(result);
+
+    for (int32_t i = 0; i < num_threads; i++)
+    {
+        for (auto minimizer: local_hits[i])
+        {
+            hits.push_back(minimizer);  // (id -> anchor_path)
+        }
+    }
+    local_hits.clear();
+    return hits;
 }
 
 
@@ -405,9 +1083,11 @@ std::vector<int> Approximator::dp_approximation_solver(Graph g, int R) {
     std::vector<int> colors_by_r;
     //std::vector<int> edit_dist_by_r;
     //for(int r = 0; r <= R; r++){
+    std::vector<std::map<int,int>> occ_count_by_r;
     for(int r = 0; r <= R; r++){
         //std::vector<int>path_temp;
         std::unordered_set<int> true_colours;
+        std::map<int,int> occ_count;
         // backtrack to obtain path
         int cur_vtx = n-1;
         int cur_r = r;
@@ -415,6 +1095,11 @@ std::vector<int> Approximator::dp_approximation_solver(Graph g, int R) {
             //path_temp.push_back(cur_vtx); // comment
             for(auto c : g.color[cur_vtx]){
                 true_colours.insert(c);
+                if(occ_count.find(c) == occ_count.end()){
+                    occ_count[c] = 1;
+                }else{
+                    occ_count[c] = occ_count[c]+1;
+                }
             }
             int temp_vtx = cur_vtx;
             
@@ -425,7 +1110,7 @@ std::vector<int> Approximator::dp_approximation_solver(Graph g, int R) {
             cur_r = back_r[idx(temp_vtx, cur_r)];
         }
         colors_by_r.push_back(static_cast<int>(true_colours.size()));
-
+        occ_count_by_r.push_back(occ_count);
         // std::reverse(path_temp.begin(), path_temp.end());
         // std::vector<int> dp_path_in_original_graph;
         // for(auto u : path_temp){
@@ -460,6 +1145,16 @@ std::vector<int> Approximator::dp_approximation_solver(Graph g, int R) {
         //     std::cout << "r: " << r <<  " colors in path: " << true_colours.size() << " ed: " << result.editDistance <<std::endl; 
         // }
 
+    }
+    //compute approximation certificate
+    for (size_t i = 0; i + 1 < occ_count_by_r.size(); ++i) {
+        float avg = 0;
+        const auto& occ_count = occ_count_by_r[i];
+        for(const auto& c: occ_count){
+            avg += c.second;
+        }
+        avg = avg/occ_count.size();
+        std::cout << "Approximation ratio certificate: " << avg << std::endl;
     }
 
     // compute best r
@@ -588,7 +1283,17 @@ inline std::size_t symdiff_size_sorted(const std::vector<T>& a,
     return c;
 }
 
-
+template <class T>
+inline std::size_t union_size_sorted(const std::vector<T>& a,
+                                     const std::vector<T>& b) {
+    std::size_t i = 0, j = 0, c = 0;
+    while (i < a.size() || j < b.size()) {
+        if (j == b.size() || (i < a.size() && a[i] < b[j])) { ++c; ++i; }
+        else if (i == a.size() || b[j] < a[i]) { ++c; ++j; }
+        else { ++c; ++i; ++j; } // equal → count once
+    }
+    return c;
+}
 
 // Count |(A ∪ B) ∩ (C ∪ D)| without building unions
 inline int inter_size_union2x2(const std::vector<int>& A, const std::vector<int>& B,
@@ -633,6 +1338,30 @@ inline int symdiff_size_union2x2(const std::vector<int>& E, const std::vector<in
     }
     return cnt;
 }
+
+// Count |(A ∪ B ∪ C ∪ D)| without building unions
+inline int union_size_union2x2(const std::vector<int>& A, const std::vector<int>& B,
+                               const std::vector<int>& C, const std::vector<int>& D) {
+    size_t i=0,j=0,k=0,m=0; 
+    int cnt=0;
+    while (i<A.size() || j<B.size() || k<C.size() || m<D.size()) {
+        int x = std::numeric_limits<int>::max();
+        if (i<A.size()) x = std::min(x, A[i]);
+        if (j<B.size()) x = std::min(x, B[j]);
+        if (k<C.size()) x = std::min(x, C[k]);
+        if (m<D.size()) x = std::min(x, D[m]);
+
+        bool present = false;
+        while (i<A.size() && A[i]==x) { present = true; ++i; }
+        while (j<B.size() && B[j]==x) { present = true; ++j; }
+        while (k<C.size() && C[k]==x) { present = true; ++k; }
+        while (m<D.size() && D[m]==x) { present = true; ++m; }
+
+        if (present) ++cnt;
+    }
+    return cnt;
+}
+
 
 std::vector<int> gather_colors( Graph g, int start, int end ) { 
 
@@ -707,7 +1436,7 @@ static void progress_bar(std::size_t current, std::size_t total,
 
 
 
-std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximation_solver(Graph g, int R, std::vector<bool> homo_bv) {
+std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploid_dp_approximation_solver(Graph g, int R, std::vector<bool> color_homo_bv, std::vector<bool> color_het_bv) {
     
     
     // Build vertex -> position-in-its-level map once
@@ -725,7 +1454,7 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
     //const std::uint8_t  NO_R   = std::numeric_limits<std::uint8_t>::max();
 
     struct dp_entry {
-        int value;  // you can change the type to whatever you need
+        int value;  
 
         std::vector<std::pair<int, int>> weighted_p1_edges; 
         std::vector<std::pair<int, int>> weighted_p2_edges; 
@@ -747,6 +1476,7 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
     std::cout << "Creating hetro/hom-zygous colors per vertex lists" << std::endl;
     std::vector<std::vector<int>> homo_sorted(g.adj_list.size());
     std::vector<std::vector<int>> hetero_sorted(g.adj_list.size());
+    std::vector<std::vector<int>> amb_sorted(g.adj_list.size());
 
     auto sort_dedup = [](std::vector<int>& v){
         std::sort(v.begin(), v.end());
@@ -756,13 +1486,21 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
     for (int v = 0; v < (int)g.adj_list.size(); ++v) {
         auto& H = homo_sorted[v];
         auto& T = hetero_sorted[v];
+        auto& A = amb_sorted[v];
         H.reserve(g.color[v].size());
         T.reserve(g.color[v].size());
         for (int c : g.color[v]) {
-            (homo_bv[c] ? H : T).push_back(c);
+            if(color_homo_bv[c]){ 
+                H.push_back(c);
+            }else if (color_het_bv[c]){
+                T.push_back(c);
+            }else{
+                A.push_back(c);
+            }
         }
         sort_dedup(H);
         sort_dedup(T);
+        sort_dedup(A);
     }
 
     // ---- DP profiling (lightweight) ---------------------------------
@@ -781,6 +1519,7 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
     long long prof_relax_wins = 0;    // # of times we improved dst
 
     auto dp_wall_start = clock_::now();
+
 
 
     std::cout << "Running DP" << std::endl;
@@ -851,7 +1590,9 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
                                                             homo_sorted[u2], homo_sorted[v2] );
                             int symd  = symdiff_size_union2x2( hetero_sorted[u1], hetero_sorted[v1],
                                                             hetero_sorted[u2], hetero_sorted[v2] );
-                            score_deltas.push_back(inter + symd);
+                            int un = union_size_union2x2(amb_sorted[u1], amb_sorted[v1],
+                                                            amb_sorted[u2], amb_sorted[v2]);
+                            score_deltas.push_back(inter + symd + un);
                         }
                     }
                 }
@@ -935,6 +1676,10 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
         }
     } // l
 
+
+
+
+
     // ---- print profile summary ---------------------------------------
     double prof_total = std::chrono::duration<double>(clock_::now() - dp_wall_start).count();
 
@@ -953,9 +1698,38 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
             << " relax wins:    " << prof_relax_wins << "\n";
 
 
+
+    std::cout << "\nDone with diploid DP, reporting solutions..." << std::endl;
+
+    // indexer for back tables at a given level l (r-major, then i, then j)
+    auto idx3_level = [&](int l, int i, int j, int r) -> std::size_t {
+        int k = (int)g.vertices_in_level[l].size();
+    #ifndef NDEBUG
+        if ((unsigned)i >= (unsigned)k || (unsigned)j >= (unsigned)k) throw std::out_of_range("i/j");
+    #endif
+        return ((std::size_t)r * k + i) * k + j;
+    };
+
     int k_sink = (int)g.vertices_in_level.back().size(); // should be 1
 
-    // // FOR DEBUG
+    // // for debug
+    // Outputting weighted edges, use these and comment out DP above for evaluating different scoring
+    for( int r = 0; r <= R; r++ ) {
+        int start = g.vertices_in_level.at(0).at(0);
+        std::cout << "r = " << r << std::endl;
+        std::cout << "P1 weighted edges: " << std::endl;
+        auto& sink_dp = at3(dp_cur, k_sink, 0, 0, r); // corresponds to single sink vertex
+        for( auto edge : sink_dp.weighted_p1_edges ) {
+            std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
+        }
+
+        std::cout << "P2 weighted edges: " << std::endl;
+        for( auto edge : sink_dp.weighted_p2_edges ) {
+            std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
+        }
+    }
+
+        // // FOR DEBUG
     // // Ensure dp_cur has the sink layer shape: (R+1) × k_sink × k_sink
     // dp_cur.assign((std::size_t)(R + 1) * k_sink * k_sink, dp_entry(0));
 
@@ -971,130 +1745,71 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
 
     // // r = 0
     // set_edges(0,
-    //     {{17742097,17742118}},
-    //     {{17742109,17742118}}
+    //     {{41804026, 41804048}},
+    //     {{41804044, 41804048}}
     // );
 
     // // r = 1
     // set_edges(1,
-    //     {{17742097,17742118}},
-    //     {{10197312,10197354}, {17742100,17742118}}
+    //     {{41804026, 41804048}},
+    //     {{10579093, 10579154}, {41804044, 41804048}}
     // );
 
     // // r = 2
     // set_edges(2,
-    //     {{11382429,11382498}, {17742100,17742118}},
-    //     {{9615970,9616067}, {17742101,17742118}}
+    //     {{41804026, 41804048}},
+    //     {{10579093, 10579154}, {29283310, 29283390}, {41804030, 41804048}}
     // );
 
     // // r = 3
     // set_edges(3,
-    //     {{11382429,11382498}, {17742100,17742118}},
-    //     {{9615970,9616067}, {14366629,14366713}, {17742115,17742118}}
+    //     {{9766566, 9766641}, {41804026, 41804048}},
+    //     {{10579093, 10579154}, {29283310, 29283390}, {41804030, 41804048}}
     // );
 
     // // r = 4
     // set_edges(4,
-    //     {{11382429,11382498}, {17742100,17742118}},
-    //     {{3636823,3637339}, {9615970,9616067}, {14366629,14366713}, {17742115,17742118}}
+    //     {{10577348, 10577539}, {26394058, 26394292}, {41804026, 41804048}},
+    //     {{15365306, 15365365}, {22380460, 22380648}, {41804030, 41804048}}
     // );
 
     // // r = 5
     // set_edges(5,
-    //     {{11382429,11382498}, {17742100,17742118}},
-    //     {{3636823,3637339}, {9615970,9616067}, {14510691,14510778}, {15653842,15653868}, {17742115,17742118}}
+    //     {{9766566, 9766641}, {10577364, 10577539}, {26394058, 26394292}, {41804026, 41804048}},
+    //     {{15365306, 15365365}, {22380460, 22380648}, {41804030, 41804048}}
     // );
 
     // // r = 6
     // set_edges(6,
-    //     {{3636823,3637339}, {9615970,9616067}, {14511602,14511657}, {15664403,15664422}, {17742101,17742118}},
-    //     {{11382429,11382498}, {16780427,16780525}, {17742116,17742118}}
+    //     {{9766566, 9766641}, {15798898, 15799110}, {24062198, 24062283}, {41804026, 41804048}},
+    //     {{10579093, 10579154}, {19741714, 19741855}, {27790785, 27790911}, {41804030, 41804048}}
     // );
+
     // // r = 7
     // set_edges(7,
-    //     {{3072558,3072574},
-    //     {3636823,3637339},
-    //     {9615970,9616067},
-    //     {14511602,14511657},
-    //     {15664403,15664422},
-    //     {17742101,17742118}},
-    //     {{11382429,11382498},
-    //     {16780427,16780525},
-    //     {17742116,17742118}}
+    //     {{9766566, 9766641}, {15798898, 15799110}, {23498292, 23498336}, {25363989, 25364107}, {41804026, 41804048}},
+    //     {{10579093, 10579154}, {19741714, 19741855}, {27790785, 27790911}, {41804030, 41804048}}
     // );
 
     // // r = 8
     // set_edges(8,
-    //     {{3636823,3637339},
-    //     {11708570,11708616},
-    //     {12640122,12640151},
-    //     {14511608,14511657},
-    //     {15664403,15664422},
-    //     {17742101,17742118}},
-    //     {{9916676,9916763},
-    //     {11573882,11574114},
-    //     {16780427,16780525},
-    //     {17742116,17742118}}
+    //     {{9766566, 9766641}, {15798898, 15799110}, {23498292, 23498336}, {25363989, 25364107}, {41804026, 41804048}},
+    //     {{5395540, 5395547}, {10579093, 10579154}, {19741714, 19741855}, {27790785, 27790911}, {41804030, 41804048}}
     // );
 
     // // r = 9
     // set_edges(9,
-    //     {{3072558,3072574},
-    //     {3636823,3637339},
-    //     {11708570,11708616},
-    //     {12640122,12640151},
-    //     {14511608,14511657},
-    //     {15664403,15664422},
-    //     {17742101,17742118}},
-    //     {{9916676,9916763},
-    //     {11573882,11574114},
-    //     {16780427,16780525},
-    //     {17742116,17742118}}
+    //     {{2930763, 2931008}, {9766613, 9766641}, {15798898, 15799110}, {23498292, 23498336}, {25363989, 25364107}, {41804026, 41804048}},
+    //     {{5395540, 5395547}, {10579093, 10579154}, {19741714, 19741855}, {27790785, 27790911}, {41804030, 41804048}}
     // );
 
     // // r = 10
     // set_edges(10,
-    //     {{3072558,3072574},
-    //     {3636823,3637339},
-    //     {9622405,9622431},
-    //     {11720728,11720790},
-    //     {12640122,12640151},
-    //     {14511608,14511657},
-    //     {15664403,15664422},
-    //     {17742101,17742118}},
-    //     {{10286009,10286086},
-    //     {11575993,11577179},
-    //     {16780427,16780525},
-    //     {17742116,17742118}}
+    //     {{5395540, 5395547}, {10577350, 10577539}, {15798906, 15799126}, {23498292, 23498336}, {25363989, 25364107}, {41804026, 41804048}},
+    //     {{2930763, 2931008}, {9766613, 9766641}, {12319057, 12319226}, {19741714, 19741855}, {27790785, 27790911}, {41804030, 41804048}}
     // );
 
 
-    std::cout << "\nDone with diploid DP, finding best solution..." << std::endl;
-
-    // for debug
-    // for( int r = 0; r <= R; r++ ) {
-    //     int start = g.vertices_in_level.at(0).at(0);
-    //     std::cout << "r = " << r << std::endl;
-    //     std::cout << "P1 weighted edges: " << std::endl;
-    //     auto& sink_dp = at3(dp_cur, k_sink, 0, 0, r); // corresponds to single sink vertex
-    //     for( auto edge : sink_dp.weighted_p1_edges ) {
-    //         std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
-    //     }
-
-    //     std::cout << "P2 weighted edges: " << std::endl;
-    //     for( auto edge : sink_dp.weighted_p2_edges ) {
-    //         std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
-    //     }
-    // }
-
-    // indexer for back tables at a given level l (r-major, then i, then j)
-    auto idx3_level = [&](int l, int i, int j, int r) -> std::size_t {
-        int k = (int)g.vertices_in_level[l].size();
-    #ifndef NDEBUG
-        if ((unsigned)i >= (unsigned)k || (unsigned)j >= (unsigned)k) throw std::out_of_range("i/j");
-    #endif
-        return ((std::size_t)r * k + i) * k + j;
-    };
 
     // Find the nearest vertex (by number of 0-weight hops) from src whose hap == target_hap.
     // Returns -1 if none reachable via only 0-weight edges.
@@ -1122,7 +1837,152 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
         }
         return -1; // not found
     };
+    std::vector<std::tuple<int, int, std::string, std::string>> solutions;
 
+    for( int r = 0; r <= R; r++ ) {
+
+        std::cout << "Computing haplotype paths for r = " << r << std::endl;
+        auto& sink_dp = at3(dp_cur, k_sink, 0, 0, r); // corresponds to single sink vertex
+        int r1 = sink_dp.weighted_p1_edges.size()-1;
+        int r2 = sink_dp.weighted_p2_edges.size()-1;
+        std::cerr << "Recombinations in P1: " << r1 << std::endl;
+        std::cerr << "Recombinations in P2: " << r2 << std::endl;
+
+        int start_exp = g.vertices_in_level.at(0).at(0);
+        int h;
+
+        std::string hap_1 = "";
+        for(int i = 0; i < sink_dp.weighted_p1_edges.size(); i++){
+            auto& edge = sink_dp.weighted_p1_edges.at(i);
+
+            //std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
+            if(g.original_vertex[edge.first].size() != 1){
+                std::cout << "P1: Vertex " << edge.first << " in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
+                exit(1);
+            }
+            int end_exp = edge.first;
+
+            //std::cout << "P1 (string): getting h = " << h << std::endl;
+            h = g.haplotype.at(end_exp);
+
+            if(start_exp == g.vertices_in_level.at(0).at(0)){
+                //std::cout << "P1 (string): obtaining first hap starting vertex" << std::endl;
+                for(auto& v: g.vertices_in_level.at(1)){
+                    if(g.haplotype.at(v) == h ){
+                        start_exp = v;
+                    }
+                }
+            }
+            
+            // go from vertex start to vertex end in paths[h], concatenating vertex labels
+            //std::cout << "P1 (string): getting original start vertex: size: " << g.original_vertex.at(start_exp).size() << std::endl;
+            int start_org = g.original_vertex.at(start_exp).at(0);
+            //std::cout << "P1 (string): getting original end vertex" << std::endl;
+            int end_org = g.original_vertex.at(end_exp).at(0);
+            bool activated = false;
+            for(int i = 0; i < paths[h].size(); i++){
+                if(paths[h][i] == start_org){
+                    activated = true;
+                }
+                if(activated){
+                    hap_1 += node_seq[paths[h][i]];
+                }
+                if(paths[h][i] == end_org){
+                    activated = false;
+                    break;
+                }
+            }
+
+            if(g.level.at(edge.second) == L-1){
+                //std::cout << "P1 (path recovery): done" << std::endl;
+                break;
+            }
+            auto& next_edge = sink_dp.weighted_p1_edges.at(i+1);
+            int next_hap = g.haplotype.at(next_edge.first);
+            bool found_next = false;
+            //std::cout << "P1 (string): Finding next starting point" << std::endl;
+
+            int next_start = find_next_zero_hap(edge.second, next_hap);
+            if (next_start != -1) {
+                start_exp = next_start;
+                found_next = true;
+            } else {
+                std::cout << "P1 (path recovery) Could not find next_hap=" << next_hap
+                        << " from " << edge.second << " via 0-weight edges\n";
+            }
+            //std::cout << "P1 (string): Done traversing path for h = " << h << std::endl;
+        }
+
+
+
+        std::string hap_2 = "";
+        start_exp = g.vertices_in_level.at(0).at(0);
+
+        for(int i = 0; i < sink_dp.weighted_p2_edges.size(); i++){
+
+            auto& edge = sink_dp.weighted_p2_edges.at(i);
+            //std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
+            if(g.original_vertex[edge.first].size() != 1){
+                std::cout << "P2: Vertex "<< edge.first <<" in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
+                exit(1);
+            }
+            int end_exp = edge.first;
+            h = g.haplotype.at(end_exp);
+
+            if(start_exp == g.vertices_in_level.at(0).at(0)){
+                for(auto& v: g.vertices_in_level.at(1)){
+                    if(g.haplotype.at(v) == h){
+                        start_exp = v;
+                    }
+                }
+            }
+            // go from vertex start to vertex end in paths[h], concatenating vertex labels
+            //std::cout << "P2 (string): getting original start vertex" << std::endl;
+            int start_org = g.original_vertex.at(start_exp).at(0);
+            //std::cout << "P2 (string): getting original end vertex" << std::endl;
+            int end_org = g.original_vertex.at(end_exp).at(0);
+            bool activated = false;
+            for(int i = 0; i < paths[h].size(); i++){
+                if(paths[h][i] == start_org){
+                    activated = true;
+                }
+                if(activated){
+                    hap_2 += node_seq[paths[h][i]];
+                }
+                if(paths[h][i] == end_org){
+                    activated = false;
+                    break;
+                }
+            }
+
+            if(g.level.at(edge.second) == L-1){
+                //std::cout << "P2 (string): done" << std::endl;
+                break;
+            }
+            auto& next_edge = sink_dp.weighted_p2_edges.at(i+1);
+            int next_hap = g.haplotype.at(next_edge.first);
+            bool found_next = false;
+            //std::cout << "Finding next starting point" << std::endl;
+
+            int next_start = find_next_zero_hap(edge.second, next_hap);
+            if (next_start != -1) {
+                start_exp = next_start;
+                found_next = true;
+            } else {
+                std::cout << "P2 (path recovery) Could not find next_hap=" << next_hap
+                        << " from " << edge.second << " via 0-weight edges\n";
+            }
+            //std::cout << "P2: Done traversing path for h = " << h << std::endl;            
+
+        }
+
+        solutions.emplace_back(r1, r2, hap_1, hap_2);
+    }
+
+
+
+
+    // Delta score approach
     std::vector<int> score_by_r;
 
     for( int r = 0; r <= R; r++ ) {
@@ -1132,6 +1992,7 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
 
         std::vector<int> path_1_homo_colors;
         std::vector<int> path_1_hetero_colors;
+        std::vector<int> path_1_amb_colors;
 
         int start = g.vertices_in_level.at(0).at(0);
 
@@ -1159,10 +2020,12 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
             
             for(auto c : reachable_colors){
 
-                if(homo_bv[c]){
+                if(color_homo_bv[c]){
                     path_1_homo_colors.push_back(c);
-                }else{
+                }else if(color_homo_bv[c]){
                     path_1_hetero_colors.push_back(c);
+                }else{
+                    path_1_amb_colors.push_back(c);
                 }
             }
             //std::cout << "Checking level of edge.second" << std::endl;
@@ -1193,6 +2056,7 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
 
         std::vector<int> path_2_homo_colors;
         std::vector<int> path_2_hetero_colors;
+        std::vector<int> path_2_amb_colors;
 
         start = g.vertices_in_level.at(0).at(0);
 
@@ -1216,10 +2080,12 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
             
             for(auto c : reachable_colors){
 
-                if(homo_bv[c]){
+                if(color_homo_bv[c]){
                     path_2_homo_colors.push_back(c);
-                }else{
+                }else if(color_het_bv[c]){
                     path_2_hetero_colors.push_back(c);
+                }else{
+                    path_2_amb_colors.push_back(c);
                 }
             }
             if(g.level.at(edge.second) == L-1){
@@ -1247,224 +2113,228 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
         dedup_inplace(path_1_hetero_colors);
         dedup_inplace(path_2_homo_colors);
         dedup_inplace(path_2_hetero_colors);
+        dedup_inplace(path_1_amb_colors);
+        dedup_inplace(path_2_amb_colors);
         int intersection_count = intersection_size_sorted(path_1_homo_colors, path_2_homo_colors);
         int symdiff_count = symdiff_size_sorted(path_1_hetero_colors, path_2_hetero_colors);
+        int union_count = union_size_sorted(path_1_amb_colors, path_2_amb_colors);
         int score = intersection_count + symdiff_count;
         std::cout << "r: " << r << " score: " << score << std::endl;
         score_by_r.push_back(score);
 
 
-        // // recovering strings
 
-        // int start_exp = g.vertices_in_level.at(0).at(0);
-        // int h;
-        // std::string dp_output_1 = "";
-        // for(int i = 0; i < sink_dp.weighted_p1_edges.size(); i++){
-        //     auto& edge = sink_dp.weighted_p1_edges.at(i);
 
-        //     std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
-        //     if(g.original_vertex[edge.first].size() != 1){
-        //         std::cout << "P1: Vertex in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
-        //         exit(1);
-        //     }
-        //     int end_exp = edge.first;
+    //     // For DEBUG
+    //     // recovering strings
 
-        //     //std::cout << "P1 (string): getting h = " << h << std::endl;
-        //     h = g.haplotype.at(end_exp);
+    //     int start_exp = g.vertices_in_level.at(0).at(0);
+    //     int h;
+    //     std::string dp_output_1 = "";
+    //     for(int i = 0; i < sink_dp.weighted_p1_edges.size(); i++){
+    //         auto& edge = sink_dp.weighted_p1_edges.at(i);
 
-        //     if(start_exp == g.vertices_in_level.at(0).at(0)){
-        //         //std::cout << "P1 (string): obtaining first hap starting vertex" << std::endl;
-        //         for(auto& v: g.vertices_in_level.at(1)){
-        //             if(g.haplotype.at(v) == h ){
-        //                 start_exp = v;
-        //             }
-        //         }
-        //     }
+    //         std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
+    //         if(g.original_vertex[edge.first].size() != 1){
+    //             std::cout << "P1: Vertex in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
+    //             exit(1);
+    //         }
+    //         int end_exp = edge.first;
+
+    //         //std::cout << "P1 (string): getting h = " << h << std::endl;
+    //         h = g.haplotype.at(end_exp);
+
+    //         if(start_exp == g.vertices_in_level.at(0).at(0)){
+    //             //std::cout << "P1 (string): obtaining first hap starting vertex" << std::endl;
+    //             for(auto& v: g.vertices_in_level.at(1)){
+    //                 if(g.haplotype.at(v) == h ){
+    //                     start_exp = v;
+    //                 }
+    //             }
+    //         }
             
-        //     // go from vertex start to vertex end in paths[h], concatenating vertex labels
-        //     //std::cout << "P1 (string): getting original start vertex: size: " << g.original_vertex.at(start_exp).size() << std::endl;
-        //     int start_org = g.original_vertex.at(start_exp).at(0);
-        //     //std::cout << "P1 (string): getting original end vertex" << std::endl;
-        //     int end_org = g.original_vertex.at(end_exp).at(0);
-        //     bool activated = false;
-        //     for(int i = 0; i < paths[h].size(); i++){
-        //         if(paths[h][i] == start_org){
-        //             activated = true;
-        //         }
-        //         if(activated){
-        //             dp_output_1 += node_seq[paths[h][i]];
-        //         }
-        //         if(paths[h][i] == end_org){
-        //             activated = false;
-        //             break;
-        //         }
-        //     }
+    //         // go from vertex start to vertex end in paths[h], concatenating vertex labels
+    //         //std::cout << "P1 (string): getting original start vertex: size: " << g.original_vertex.at(start_exp).size() << std::endl;
+    //         int start_org = g.original_vertex.at(start_exp).at(0);
+    //         //std::cout << "P1 (string): getting original end vertex" << std::endl;
+    //         int end_org = g.original_vertex.at(end_exp).at(0);
+    //         bool activated = false;
+    //         for(int i = 0; i < paths[h].size(); i++){
+    //             if(paths[h][i] == start_org){
+    //                 activated = true;
+    //             }
+    //             if(activated){
+    //                 dp_output_1 += node_seq[paths[h][i]];
+    //             }
+    //             if(paths[h][i] == end_org){
+    //                 activated = false;
+    //                 break;
+    //             }
+    //         }
 
-        //     if(g.level.at(edge.second) == L-1){
-        //         std::cout << "P1 (string): done" << std::endl;
-        //         break;
-        //     }
-        //     auto& next_edge = sink_dp.weighted_p1_edges.at(i+1);
-        //     int next_hap = g.haplotype.at(next_edge.first);
-        //     bool found_next = false;
-        //     //std::cout << "P1 (string): Finding next starting point" << std::endl;
+    //         if(g.level.at(edge.second) == L-1){
+    //             std::cout << "P1 (string): done" << std::endl;
+    //             break;
+    //         }
+    //         auto& next_edge = sink_dp.weighted_p1_edges.at(i+1);
+    //         int next_hap = g.haplotype.at(next_edge.first);
+    //         bool found_next = false;
+    //         //std::cout << "P1 (string): Finding next starting point" << std::endl;
 
-        //     int next_start = find_next_zero_hap(edge.second, next_hap);
-        //     if (next_start != -1) {
-        //         start_exp = next_start;
-        //         found_next = true;
-        //     } else {
-        //         //std::cout << "P1 (string recovery) Could not find next_hap=" << next_hap
-        //                 << " from " << edge.second << " via 0-weight edges\n";
-        //     }
-        //     //std::cout << "P1 (string): Done traversing path for h = " << h << std::endl;
-        // }
+    //         int next_start = find_next_zero_hap(edge.second, next_hap);
+    //         if (next_start != -1) {
+    //             start_exp = next_start;
+    //             found_next = true;
+    //         } else {
+    //             std::cout << "P1 (string recovery) Could not find next_hap=" << next_hap
+    //                     << " from " << edge.second << " via 0-weight edges\n";
+    //         }
+    //         //std::cout << "P1 (string): Done traversing path for h = " << h << std::endl;
+    //     }
 
 
 
-        // std::string dp_output_2 = "";
-        // start_exp = g.vertices_in_level.at(0).at(0);
+    //     std::string dp_output_2 = "";
+    //     start_exp = g.vertices_in_level.at(0).at(0);
 
-        // for(int i = 0; i < sink_dp.weighted_p2_edges.size(); i++){
+    //     for(int i = 0; i < sink_dp.weighted_p2_edges.size(); i++){
 
-        //     auto& edge = sink_dp.weighted_p2_edges.at(i);
-        //     std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
-        //     if(g.original_vertex[edge.first].size() != 1){
-        //         std::cout << "P2: Vertex in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
-        //         exit(1);
-        //     }
-        //     int end_exp = edge.first;
-        //     h = g.haplotype.at(end_exp);
+    //         auto& edge = sink_dp.weighted_p2_edges.at(i);
+    //         std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
+    //         if(g.original_vertex[edge.first].size() != 1){
+    //             std::cout << "P2: Vertex in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
+    //             exit(1);
+    //         }
+    //         int end_exp = edge.first;
+    //         h = g.haplotype.at(end_exp);
 
-        //     if(start_exp == g.vertices_in_level.at(0).at(0)){
-        //         for(auto& v: g.vertices_in_level.at(1)){
-        //             if(g.haplotype.at(v) == h){
-        //                 start_exp = v;
-        //             }
-        //         }
-        //     }
-        //     // go from vertex start to vertex end in paths[h], concatenating vertex labels
-        //     //std::cout << "P2 (string): getting original start vertex" << std::endl;
-        //     int start_org = g.original_vertex.at(start_exp).at(0);
-        //     //std::cout << "P2 (string): getting original end vertex" << std::endl;
-        //     int end_org = g.original_vertex.at(end_exp).at(0);
-        //     bool activated = false;
-        //     for(int i = 0; i < paths[h].size(); i++){
-        //         if(paths[h][i] == start_org){
-        //             activated = true;
-        //         }
-        //         if(activated){
-        //             dp_output_2 += node_seq[paths[h][i]];
-        //         }
-        //         if(paths[h][i] == end_org){
-        //             activated = false;
-        //             break;
-        //         }
-        //     }
+    //         if(start_exp == g.vertices_in_level.at(0).at(0)){
+    //             for(auto& v: g.vertices_in_level.at(1)){
+    //                 if(g.haplotype.at(v) == h){
+    //                     start_exp = v;
+    //                 }
+    //             }
+    //         }
+    //         // go from vertex start to vertex end in paths[h], concatenating vertex labels
+    //         //std::cout << "P2 (string): getting original start vertex" << std::endl;
+    //         int start_org = g.original_vertex.at(start_exp).at(0);
+    //         //std::cout << "P2 (string): getting original end vertex" << std::endl;
+    //         int end_org = g.original_vertex.at(end_exp).at(0);
+    //         bool activated = false;
+    //         for(int i = 0; i < paths[h].size(); i++){
+    //             if(paths[h][i] == start_org){
+    //                 activated = true;
+    //             }
+    //             if(activated){
+    //                 dp_output_2 += node_seq[paths[h][i]];
+    //             }
+    //             if(paths[h][i] == end_org){
+    //                 activated = false;
+    //                 break;
+    //             }
+    //         }
 
-        //     if(g.level.at(edge.second) == L-1){
-        //         //std::cout << "P2 (string): done" << std::endl;
-        //         break;
-        //     }
-        //     auto& next_edge = sink_dp.weighted_p2_edges.at(i+1);
-        //     int next_hap = g.haplotype.at(next_edge.first);
-        //     bool found_next = false;
-        //     //std::cout << "Finding next starting point" << std::endl;
+    //         if(g.level.at(edge.second) == L-1){
+    //             //std::cout << "P2 (string): done" << std::endl;
+    //             break;
+    //         }
+    //         auto& next_edge = sink_dp.weighted_p2_edges.at(i+1);
+    //         int next_hap = g.haplotype.at(next_edge.first);
+    //         bool found_next = false;
+    //         //std::cout << "Finding next starting point" << std::endl;
 
-        //     int next_start = find_next_zero_hap(edge.second, next_hap);
-        //     if (next_start != -1) {
-        //         start_exp = next_start;
-        //         found_next = true;
-        //     } else {
-        //         std::cout << "P2 (string recovery) Could not find next_hap=" << next_hap
-        //                 << " from " << edge.second << " via 0-weight edges\n";
-        //     }
-        //     //std::cout << "P2: Done traversing path for h = " << h << std::endl;            
+    //         int next_start = find_next_zero_hap(edge.second, next_hap);
+    //         if (next_start != -1) {
+    //             start_exp = next_start;
+    //             found_next = true;
+    //         } else {
+    //             std::cout << "P2 (string recovery) Could not find next_hap=" << next_hap
+    //                     << " from " << edge.second << " via 0-weight edges\n";
+    //         }
+    //         //std::cout << "P2: Done traversing path for h = " << h << std::endl;            
 
-        // }
+    //     }
 
         
+    //     // For DEBUG
+    //     // load ground truth
+    //     std::string ground_truth_file_1 = "data/MHC-HG02886.1.fa";
+    //     std::string ground_truth_file_2 = "data/MHC-HG02886.2.fa";
 
-
-        // // For DEBUG
-        // // load ground truth
-        // std::string ground_truth_file_1 = "data/Ground_truth/MHC-NA18906.1.fa";
-        // std::string ground_truth_file_2 = "data/Ground_truth/MHC-NA18906.2.fa";
-
-        // std::string ground_truth_1;
-        // std::ifstream infile_1(ground_truth_file_1);  
-        // if (!infile_1) {
-        //     std::cerr << "Error opening file ground truth 1.\n";
-        // }
-        // std::string line_1;
-        // std::getline(infile_1, line_1);  // Skip the first line (header starting with '>')
-        // while (std::getline(infile_1, line_1)) {
-        //     ground_truth_1 += line_1;
-        // }
+    //     std::string ground_truth_1;
+    //     std::ifstream infile_1(ground_truth_file_1);  
+    //     if (!infile_1) {
+    //         std::cerr << "Error opening file ground truth 1.\n";
+    //     }
+    //     std::string line_1;
+    //     std::getline(infile_1, line_1);  // Skip the first line (header starting with '>')
+    //     while (std::getline(infile_1, line_1)) {
+    //         ground_truth_1 += line_1;
+    //     }
         
-        // std::string ground_truth_2;
-        // std::ifstream infile_2(ground_truth_file_2);  
-        // if (!infile_2) {
-        //     std::cerr << "Error opening file ground truth 2.\n";
-        // }
-        // std::string line_2;
-        // std::getline(infile_2, line_2);  // Skip the first line (header starting with '>')
-        // while (std::getline(infile_2, line_2)) {
-        //     ground_truth_2 += line_2;
-        // }
+    //     std::string ground_truth_2;
+    //     std::ifstream infile_2(ground_truth_file_2);  
+    //     if (!infile_2) {
+    //         std::cerr << "Error opening file ground truth 2.\n";
+    //     }
+    //     std::string line_2;
+    //     std::getline(infile_2, line_2);  // Skip the first line (header starting with '>')
+    //     while (std::getline(infile_2, line_2)) {
+    //         ground_truth_2 += line_2;
+    //     }
 
 
-        // EdlibAlignConfig cfg_1 = edlibDefaultAlignConfig();
-        // cfg_1.task = EDLIB_TASK_DISTANCE;         // <-- distance only
-        // cfg_1.mode = EDLIB_MODE_NW;               // or EDLIB_MODE_HW / EDLIB_MODE_SHW as needed
-        // cfg_1.k = 272734;
+    //     EdlibAlignConfig cfg_1 = edlibDefaultAlignConfig();
+    //     cfg_1.task = EDLIB_TASK_DISTANCE;         // <-- distance only
+    //     cfg_1.mode = EDLIB_MODE_NW;               // or EDLIB_MODE_HW / EDLIB_MODE_SHW as needed
+    //     cfg_1.k = 272734;
 
-        // EdlibAlignConfig cfg_2 = edlibDefaultAlignConfig();
-        // cfg_2.task = EDLIB_TASK_DISTANCE;         // <-- distance only
-        // cfg_2.mode = EDLIB_MODE_NW;               // or EDLIB_MODE_HW / EDLIB_MODE_SHW as needed
-        // cfg_2.k = 271326;
+    //     EdlibAlignConfig cfg_2 = edlibDefaultAlignConfig();
+    //     cfg_2.task = EDLIB_TASK_DISTANCE;         // <-- distance only
+    //     cfg_2.mode = EDLIB_MODE_NW;               // or EDLIB_MODE_HW / EDLIB_MODE_SHW as needed
+    //     cfg_2.k = 271326;
 
 
-        // std::cout << "dp_output_1 len: " << dp_output_1.length() 
-        //     << " dp_output_2 len: " << dp_output_2.length() 
-        //     << " ground truth 1 len: " << ground_truth_1.length()
-        //     << " ground truth 2 len: " << ground_truth_2.length() << std::endl;
+    //     std::cout << "dp_output_1 len: " << dp_output_1.length() 
+    //         << " dp_output_2 len: " << dp_output_2.length() 
+    //         << " ground truth 1 len: " << ground_truth_1.length()
+    //         << " ground truth 2 len: " << ground_truth_2.length() << std::endl;
 
-        // std::cout << "Computing edit distances" << std::endl;
-        // // Results must be distinct variables (no sharing)
-        // EdlibAlignResult result_1_1, result_1_2, result_2_1, result_2_2;
-        // #pragma omp parallel sections
-        // {
-        //     #pragma omp section
-        //     result_1_1 = edlibAlign(dp_output_1.c_str(), dp_output_1.length(), ground_truth_1.c_str(), ground_truth_1.length(), cfg_1);
+    //     std::cout << "Computing edit distances" << std::endl;
+    //     // Results must be distinct variables (no sharing)
+    //     EdlibAlignResult result_1_1, result_1_2, result_2_1, result_2_2;
+    //     #pragma omp parallel sections
+    //     {
+    //         #pragma omp section
+    //         result_1_1 = edlibAlign(dp_output_1.c_str(), dp_output_1.length(), ground_truth_1.c_str(), ground_truth_1.length(), cfg_1);
         
-        //     //std::cout << "Computing ed12" << std::endl;
+    //         //std::cout << "Computing ed12" << std::endl;
             
-        //     #pragma omp section
-        //     result_1_2 = edlibAlign(dp_output_1.c_str(), dp_output_1.length(), ground_truth_2.c_str(), ground_truth_2.length(), cfg_1);
+    //         #pragma omp section
+    //         result_1_2 = edlibAlign(dp_output_1.c_str(), dp_output_1.length(), ground_truth_2.c_str(), ground_truth_2.length(), cfg_1);
         
-        //     //std::cout << "Computing ed21" << std::endl;
+    //         //std::cout << "Computing ed21" << std::endl;
             
-        //     #pragma omp section
-        //     result_2_1 = edlibAlign(dp_output_2.c_str(), dp_output_2.length(), ground_truth_1.c_str(), ground_truth_1.length(), cfg_2);
+    //         #pragma omp section
+    //         result_2_1 = edlibAlign(dp_output_2.c_str(), dp_output_2.length(), ground_truth_1.c_str(), ground_truth_1.length(), cfg_2);
         
-        //     //std::cout << "Computing ed22" << std::endl;
+    //         //std::cout << "Computing ed22" << std::endl;
             
-        //     #pragma omp section
-        //     result_2_2 = edlibAlign(dp_output_2.c_str(), dp_output_2.length(), ground_truth_2.c_str(), ground_truth_2.length(), cfg_2);
-        // }
-        // if (result_1_1.status == EDLIB_STATUS_OK &&
-        //     result_1_2.status == EDLIB_STATUS_OK &&
-        //     result_2_1.status == EDLIB_STATUS_OK &&
-        //     result_2_2.status == EDLIB_STATUS_OK ) 
-        //     {
-        //     std::cout << "r: " << r
-        //     << ", ed_11: " << result_1_1.editDistance 
-        //     << ", ed_12: " << result_1_2.editDistance
-        //     << ", ed_21: " << result_2_1.editDistance
-        //     << ", ed_22: " << result_2_2.editDistance   
-        //     << std::endl; 
-        // }
+    //         #pragma omp section
+    //         result_2_2 = edlibAlign(dp_output_2.c_str(), dp_output_2.length(), ground_truth_2.c_str(), ground_truth_2.length(), cfg_2);
+    //     }
+    //     if (result_1_1.status == EDLIB_STATUS_OK &&
+    //         result_1_2.status == EDLIB_STATUS_OK &&
+    //         result_2_1.status == EDLIB_STATUS_OK &&
+    //         result_2_2.status == EDLIB_STATUS_OK ) 
+    //         {
+    //         std::cout << "r: " << r
+    //         << ", ed_11: " << result_1_1.editDistance 
+    //         << ", ed_12: " << result_1_2.editDistance
+    //         << ", ed_21: " << result_2_1.editDistance
+    //         << ", ed_22: " << result_2_2.editDistance   
+    //         << std::endl; 
+    //     }
 
     }
 
@@ -1483,151 +2353,238 @@ std::pair<std::vector<int>,std::vector<int>> Approximator::diploid_dp_approximat
         std::cout << "r: " << r << " -> " << r + 1 << ", Δscore: " << delta
                 << ", angle: " << angle_deg << "°" //<<", ed: " << edit_dist_by_r.at(i)
                 << std::endl;
-        if(angle_deg < 10){
+        if(angle_deg < 4){
             best_r = r;
+            auto best_sol = solutions.at(r);
+            solutions.clear();
+            solutions.push_back(best_sol);
             break;
         }
     }
 
+    if(solutions.size() > 1){
+        std::cout << "No clear solution based on marginal gain, returning all solutions" << std::endl;
+    }else{
+        std::cerr << "Best Recombination count: " << best_r << std::endl;
+    }
+    // auto& sink_dp = at3(dp_cur, k_sink, 0, 0, best_r); // corresponds to single sink vertex
+    // std::cerr << "Recombinations in P1: " << sink_dp.weighted_p1_edges.size()-1 << std::endl;
+    // std::cerr << "Recombinations in P2: " << sink_dp.weighted_p2_edges.size()-1 << std::endl;
 
-    std::cerr << "Recombination count: " << best_r << std::endl;
+    // int start_exp = g.vertices_in_level.at(0).at(0);
+    // int h;
+    // std::vector<int> dp_output_1;
+    // for(int i = 0; i < sink_dp.weighted_p1_edges.size(); i++){
+    //     auto& edge = sink_dp.weighted_p1_edges.at(i);
 
-    auto& sink_dp = at3(dp_cur, k_sink, 0, 0, best_r); // corresponds to single sink vertex
-    std::cerr << "Recombinations in P1: " << sink_dp.weighted_p1_edges.size()-1 << std::endl;
-    std::cerr << "Recombinations in P2: " << sink_dp.weighted_p2_edges.size()-1 << std::endl;
+    //     //std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
+    //     if(g.original_vertex[edge.first].size() != 1){
+    //         std::cout << "P1: Vertex " << edge.first << " in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
+    //         exit(1);
+    //     }
+    //     int end_exp = edge.first;
 
-    int start_exp = g.vertices_in_level.at(0).at(0);
-    int h;
-    std::vector<int> dp_output_1;
-    for(int i = 0; i < sink_dp.weighted_p1_edges.size(); i++){
-        auto& edge = sink_dp.weighted_p1_edges.at(i);
+    //     //std::cout << "P1 (string): getting h = " << h << std::endl;
+    //     h = g.haplotype.at(end_exp);
 
-        //std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
-        if(g.original_vertex[edge.first].size() != 1){
-            std::cout << "P1: Vertex in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
-            exit(1);
-        }
-        int end_exp = edge.first;
-
-        //std::cout << "P1 (string): getting h = " << h << std::endl;
-        h = g.haplotype.at(end_exp);
-
-        if(start_exp == g.vertices_in_level.at(0).at(0)){
-            //std::cout << "P1 (string): obtaining first hap starting vertex" << std::endl;
-            for(auto& v: g.vertices_in_level.at(1)){
-                if(g.haplotype.at(v) == h ){
-                    start_exp = v;
-                }
-            }
-        }
+    //     if(start_exp == g.vertices_in_level.at(0).at(0)){
+    //         //std::cout << "P1 (string): obtaining first hap starting vertex" << std::endl;
+    //         for(auto& v: g.vertices_in_level.at(1)){
+    //             if(g.haplotype.at(v) == h ){
+    //                 start_exp = v;
+    //             }
+    //         }
+    //     }
         
-        // go from vertex start to vertex end in paths[h], concatenating vertex labels
-        //std::cout << "P1 (string): getting original start vertex: size: " << g.original_vertex.at(start_exp).size() << std::endl;
-        int start_org = g.original_vertex.at(start_exp).at(0);
-        //std::cout << "P1 (string): getting original end vertex" << std::endl;
-        int end_org = g.original_vertex.at(end_exp).at(0);
-        bool activated = false;
-        for(int i = 0; i < paths[h].size(); i++){
-            if(paths[h][i] == start_org){
-                activated = true;
-            }
-            if(activated){
-                dp_output_1.push_back(paths[h][i]);
-            }
-            if(paths[h][i] == end_org){
-                activated = false;
-                break;
-            }
-        }
+    //     // go from vertex start to vertex end in paths[h], concatenating vertex labels
+    //     //std::cout << "P1 (string): getting original start vertex: size: " << g.original_vertex.at(start_exp).size() << std::endl;
+    //     int start_org = g.original_vertex.at(start_exp).at(0);
+    //     //std::cout << "P1 (string): getting original end vertex" << std::endl;
+    //     int end_org = g.original_vertex.at(end_exp).at(0);
+    //     bool activated = false;
+    //     for(int i = 0; i < paths[h].size(); i++){
+    //         if(paths[h][i] == start_org){
+    //             activated = true;
+    //         }
+    //         if(activated){
+    //             dp_output_1.push_back(paths[h][i]);
+    //         }
+    //         if(paths[h][i] == end_org){
+    //             activated = false;
+    //             break;
+    //         }
+    //     }
 
-        if(g.level.at(edge.second) == L-1){
-            //std::cout << "P1 (path recovery): done" << std::endl;
-            break;
-        }
-        auto& next_edge = sink_dp.weighted_p1_edges.at(i+1);
-        int next_hap = g.haplotype.at(next_edge.first);
-        bool found_next = false;
-        //std::cout << "P1 (string): Finding next starting point" << std::endl;
+    //     if(g.level.at(edge.second) == L-1){
+    //         //std::cout << "P1 (path recovery): done" << std::endl;
+    //         break;
+    //     }
+    //     auto& next_edge = sink_dp.weighted_p1_edges.at(i+1);
+    //     int next_hap = g.haplotype.at(next_edge.first);
+    //     bool found_next = false;
+    //     //std::cout << "P1 (string): Finding next starting point" << std::endl;
 
-        int next_start = find_next_zero_hap(edge.second, next_hap);
-        if (next_start != -1) {
-            start_exp = next_start;
-            found_next = true;
-        } else {
-            std::cout << "P1 (path recovery) Could not find next_hap=" << next_hap
-                    << " from " << edge.second << " via 0-weight edges\n";
-        }
-        //std::cout << "P1 (string): Done traversing path for h = " << h << std::endl;
-    }
+    //     int next_start = find_next_zero_hap(edge.second, next_hap);
+    //     if (next_start != -1) {
+    //         start_exp = next_start;
+    //         found_next = true;
+    //     } else {
+    //         std::cout << "P1 (path recovery) Could not find next_hap=" << next_hap
+    //                 << " from " << edge.second << " via 0-weight edges\n";
+    //     }
+    //     //std::cout << "P1 (string): Done traversing path for h = " << h << std::endl;
+    //}
 
 
 
-    std::vector<int> dp_output_2;
-    start_exp = g.vertices_in_level.at(0).at(0);
+    // std::vector<int> dp_output_2;
+    // start_exp = g.vertices_in_level.at(0).at(0);
 
-    for(int i = 0; i < sink_dp.weighted_p2_edges.size(); i++){
+    // for(int i = 0; i < sink_dp.weighted_p2_edges.size(); i++){
 
-        auto& edge = sink_dp.weighted_p2_edges.at(i);
-        //std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
-        if(g.original_vertex[edge.first].size() != 1){
-            std::cout << "P2: Vertex in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
-            exit(1);
-        }
-        int end_exp = edge.first;
-        h = g.haplotype.at(end_exp);
+    //     auto& edge = sink_dp.weighted_p2_edges.at(i);
+    //     //std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
+    //     if(g.original_vertex[edge.first].size() != 1){
+    //         std::cout << "P2: Vertex "<< edge.first <<" in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
+    //         exit(1);
+    //     }
+    //     int end_exp = edge.first;
+    //     h = g.haplotype.at(end_exp);
 
-        if(start_exp == g.vertices_in_level.at(0).at(0)){
-            for(auto& v: g.vertices_in_level.at(1)){
-                if(g.haplotype.at(v) == h){
-                    start_exp = v;
-                }
-            }
-        }
-        // go from vertex start to vertex end in paths[h], concatenating vertex labels
-        //std::cout << "P2 (string): getting original start vertex" << std::endl;
-        int start_org = g.original_vertex.at(start_exp).at(0);
-        //std::cout << "P2 (string): getting original end vertex" << std::endl;
-        int end_org = g.original_vertex.at(end_exp).at(0);
-        bool activated = false;
-        for(int i = 0; i < paths[h].size(); i++){
-            if(paths[h][i] == start_org){
-                activated = true;
-            }
-            if(activated){
-                dp_output_2.push_back(paths[h][i]);
-            }
-            if(paths[h][i] == end_org){
-                activated = false;
-                break;
-            }
-        }
+    //     if(start_exp == g.vertices_in_level.at(0).at(0)){
+    //         for(auto& v: g.vertices_in_level.at(1)){
+    //             if(g.haplotype.at(v) == h){
+    //                 start_exp = v;
+    //             }
+    //         }
+    //     }
+    //     // go from vertex start to vertex end in paths[h], concatenating vertex labels
+    //     //std::cout << "P2 (string): getting original start vertex" << std::endl;
+    //     int start_org = g.original_vertex.at(start_exp).at(0);
+    //     //std::cout << "P2 (string): getting original end vertex" << std::endl;
+    //     int end_org = g.original_vertex.at(end_exp).at(0);
+    //     bool activated = false;
+    //     for(int i = 0; i < paths[h].size(); i++){
+    //         if(paths[h][i] == start_org){
+    //             activated = true;
+    //         }
+    //         if(activated){
+    //             dp_output_2.push_back(paths[h][i]);
+    //         }
+    //         if(paths[h][i] == end_org){
+    //             activated = false;
+    //             break;
+    //         }
+    //     }
 
-        if(g.level.at(edge.second) == L-1){
-            //std::cout << "P2 (string): done" << std::endl;
-            break;
-        }
-        auto& next_edge = sink_dp.weighted_p2_edges.at(i+1);
-        int next_hap = g.haplotype.at(next_edge.first);
-        bool found_next = false;
-        //std::cout << "Finding next starting point" << std::endl;
+    //     if(g.level.at(edge.second) == L-1){
+    //         //std::cout << "P2 (string): done" << std::endl;
+    //         break;
+    //     }
+    //     auto& next_edge = sink_dp.weighted_p2_edges.at(i+1);
+    //     int next_hap = g.haplotype.at(next_edge.first);
+    //     bool found_next = false;
+    //     //std::cout << "Finding next starting point" << std::endl;
 
-        int next_start = find_next_zero_hap(edge.second, next_hap);
-        if (next_start != -1) {
-            start_exp = next_start;
-            found_next = true;
-        } else {
-            std::cout << "P2 (path recovery) Could not find next_hap=" << next_hap
-                    << " from " << edge.second << " via 0-weight edges\n";
-        }
-        //std::cout << "P2: Done traversing path for h = " << h << std::endl;            
+    //     int next_start = find_next_zero_hap(edge.second, next_hap);
+    //     if (next_start != -1) {
+    //         start_exp = next_start;
+    //         found_next = true;
+    //     } else {
+    //         std::cout << "P2 (path recovery) Could not find next_hap=" << next_hap
+    //                 << " from " << edge.second << " via 0-weight edges\n";
+    //     }
+    //     //std::cout << "P2: Done traversing path for h = " << h << std::endl;            
 
-    }
+    // }
+    // // End of previous approach
 
-     return std::pair(dp_output_1, dp_output_2);
+
+    return solutions;
+
 }
 
 
-void Approximator::approximate(std::vector<std::pair<std::string, std::string>> &ip_reads, bool diploid)
+int Approximator::evaluate_diploid_solution_based_on_kmers(
+    std::vector<std::tuple<int, int, std::string, std::string>> solutions,
+    std::vector<std::pair<std::string, std::string>> validation_reads
+    ){
+
+    int num_reads = validation_reads.size();
+    // Compute the anchors
+    int64_t num_kmers = 0;
+    std::vector<std::set<uint64_t>> Read_hashes(num_reads);
+    std::map<uint64_t, int32_t> Sp_R;
+    #pragma omp parallel for num_threads(num_threads)
+    for (int32_t r = 0; r < num_reads; r++)
+    {
+        Read_hashes[r] = compute_hashes(validation_reads[r].second, 1);
+    }
+    // push all the unique read hashes to a set
+    for (int32_t r = 0; r < num_reads; r++)
+    {
+        for (auto hash: Read_hashes[r])
+        {
+            Sp_R[hash]++; // duplicate hashes are not allowed
+        }
+    }
+    // reset Sp_R values from 0 to max_Sp_R
+    int32_t count_sp_r = 0;
+    for (auto &hash: Sp_R)
+    {
+        hash.second = count_sp_r++; // unique hash -> map_id
+    }
+    assert(Sp_R.size() == count_sp_r);
+    int r = 0;
+
+    int best_r = 0;
+    int best_score = -1;
+    for(const auto& [r1, r2, s1, s2] : solutions){
+        // index s1 
+        auto kmer_index1 = index_string(s1);
+        // index s2
+        auto kmer_index2 = index_string(s2);
+
+        // compute the minimizer hits
+        std::vector<u_int64_t> hap1_hits = compute_minimizer_hits(kmer_index1, Sp_R); 
+        std::vector<u_int64_t> hap2_hits = compute_minimizer_hits(kmer_index2, Sp_R);
+        hap1_hits.insert(hap1_hits.end(), hap2_hits.begin(), hap2_hits.end());
+        dedup_inplace(hap1_hits);
+        
+        //dedup_inplace(hap2_hits);
+        //int card = intersection_size_sorted(hap1_hits, hap2_hits);
+        int card = hap1_hits.size();
+        std::cout << r1 << ", " << r2 << ", " << s1.length() << ", " << s2.length() << ": " << card << std::endl;
+        if(card > best_score){
+            best_score = card;
+            best_r = r;
+            std::cout << "New best found" << std::endl;
+        }
+        r++;
+    }
+    std::cout << "Best_r = " << best_r << std::endl;
+    return best_r;
+}
+
+void split_half_randomly(std::vector<std::pair<std::string, std::string>>& ip_reads,
+                         std::vector<std::pair<std::string, std::string>>& first_half,
+                         std::vector<std::pair<std::string, std::string>>& second_half) {
+    // Create a random engine
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    // Shuffle the input vector in place
+    std::shuffle(ip_reads.begin(), ip_reads.end(), gen);
+
+    // Split index (roughly 50%)
+    std::size_t mid = ip_reads.size() / 2;
+
+    // Move elements to two new vectors
+    first_half.assign(ip_reads.begin(), ip_reads.begin() + mid);
+    second_half.assign(ip_reads.begin() + mid, ip_reads.end());
+}
+
+void Approximator::approximate(std::vector<std::pair<std::string, std::string>> &full_ip_reads, bool diploid)
 {
 
     std::vector<int32_t> hap_sizes(num_walks);
@@ -1656,6 +2613,12 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
     //     std::cout << std::endl;
     // }
 
+    // // for alternative validation method
+    // std::vector<std::pair<std::string, std::string>> ip_reads;
+    // std::vector<std::pair<std::string, std::string>> validation_reads;
+    // split_half_randomly(full_ip_reads, ip_reads, validation_reads);
+    
+    auto ip_reads = full_ip_reads;
     int32_t num_reads = ip_reads.size();
 
     // Index the kmers
@@ -1723,7 +2686,7 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
     #pragma omp parallel for num_threads(num_threads)
     for (int32_t r = 0; r < num_reads; r++)
     {
-        Read_hashes[r] = compute_hashes(ip_reads[r].second);
+        Read_hashes[r] = compute_hashes(ip_reads[r].second, 0);
     }
     // push all the unique read hashes to a set
     for (int32_t r = 0; r < num_reads; r++)
@@ -1741,15 +2704,23 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
     }
     assert(Sp_R.size() == count_sp_r);
     // clear the read hashes
-    Read_hashes.clear();
+    //Read_hashes.clear();
+
+    // get a map id -> hash
+    std::map<int32_t, uint64_t> Sp_R_hash;
+    for (const auto& hash_pair : Sp_R) {
+        Sp_R_hash[hash_pair.second] = hash_pair.first; // map_id -> hash
+    }
 
     // print Indexed reads with spectrum size: Sp_R.size()
-    //fprintf(stderr, "[M::%s::%.3f*%.2f] Indexed reads with spectrum size: %d\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0), Sp_R.size());
+    fprintf(stderr, "[M::%s::%.3f*%.2f] Indexed reads with spectrum size: %d\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0), Sp_R.size());
 
     std::vector<std::vector<std::vector<std::vector<int32_t>>>> Anchor_hits(Sp_R.size(), std::vector<std::vector<std::vector<int32_t>>>(num_walks));
+    std::vector<int32_t> count_anchors_hap(num_walks, 0);
     // compute the anchors
     for (int32_t h = 0; h < num_walks; h++)
     {
+        // if (paths[h].size() == 0) continue;
         std::vector<std::vector<std::vector<int32_t>>> loc_match = compute_anchors(kmer_index[h], Sp_R); // parallel execution
         for (int32_t r = 0; r < Sp_R.size(); r++)
         {
@@ -1757,6 +2728,7 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
             {
                 Anchor_hits[r][h].push_back(anchor);
             }
+            if (loc_match[r].size() > 0) count_anchors_hap[h]++; // count the number of unique anchors
         } 
     }
     Sp_R.clear();
@@ -1773,8 +2745,7 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
         num_kmers_tot += loc_count;
     }
 
-    std::vector<std::vector<std::vector<std::vector<int32_t>>>> Anchor_hits_1(
-    count_sp_r, std::vector<std::vector<std::vector<int32_t>>>(num_walks));
+    std::vector<std::vector<std::vector<std::vector<int32_t>>>> Anchor_hits_1(count_sp_r, std::vector<std::vector<std::vector<int32_t>>>(num_walks));
 
     std::vector<int64_t> filtered_kmers_vec(num_threads, 0);
     #pragma omp parallel for num_threads(num_threads)
@@ -1782,6 +2753,7 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
         std::map<std::string, std::pair<int32_t, std::vector<std::pair<int32_t, std::vector<int32_t>>>>> Anchor_hits_map;
 
         for (int32_t h = 0; h < num_walks; h++) {
+            if (paths[h].size() == 0) continue;
             for (int32_t k = 0; k < Anchor_hits[r][h].size(); k++) {
                 std::string anchor_str;
                 for (auto v : Anchor_hits[r][h][k]) {
@@ -1818,9 +2790,39 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
         }
     }
 
+
     // Replace Anchor_hits with Anchor_hits_1
     Anchor_hits = std::move(Anchor_hits_1);
     Anchor_hits_1.clear();
+
+    // reorder occurrences of hits within each haplotype
+    for (size_t r = 0; r < Anchor_hits.size(); ++r) {
+        for (size_t h = 0; h < Anchor_hits[r].size(); ++h) {
+            std::sort(
+                Anchor_hits[r][h].begin(),
+                Anchor_hits[r][h].end(),
+                [](const std::vector<int32_t>& a,
+                const std::vector<int32_t>& b)
+                {
+                    /* put empty vectors last */
+                    if (a.empty()) return false;   // b precedes a
+                    if (b.empty()) return true;    // a precedes b
+
+                    /* primary key: left-most vertex */
+                    if (a[0] != b[0])
+                        return a[0] < b[0];
+
+                    /* secondary key: earlier *ending* vertex
+                    (i.e. shorter / earlier-ending path first) */
+                    return a.back() < b.back();
+                }
+            );
+        }
+    }
+
+
+    // kmer classifier *****************************************************
+
 
     int64_t filtered_kmers = 0;
     for (int32_t i = 0; i < num_threads; i++) filtered_kmers += filtered_kmers_vec[i];
@@ -1857,33 +2859,209 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
         }
     }
 
-    // For backtracking the haplotype
-    std::string haplotype;
+    // Compute Heterozygous and Homozygous Kmers
     
-    // reorder occurrences of hits within each haplotype
-    for (size_t r = 0; r < Anchor_hits.size(); ++r) {
-        for (size_t h = 0; h < Anchor_hits[r].size(); ++h) {
-            std::sort(
-                Anchor_hits[r][h].begin(),
-                Anchor_hits[r][h].end(),
-                [](const std::vector<int32_t>& a,
-                const std::vector<int32_t>& b)
-                {
-                    /* put empty vectors last */
-                    if (a.empty()) return false;   // b precedes a
-                    if (b.empty()) return true;    // a precedes b
+    // Iterate over all the reads and do +=1 if kmer is seen more than once if kmer is not there in kmer_count then set it to 0
+    // std::vector<std::set<uint64_t>> kmer_reads(num_reads);
+    // std::map<uint64_t, int32_t> Sp_R;
 
-                    /* primary key: left-most vertex */
-                    if (a[0] != b[0])
-                        return a[0] < b[0];
+    // Shared map
+    std::map<uint64_t, int32_t> kmer_count;
 
-                    /* secondary key: earlier *ending* vertex
-                    (i.e. shorter / earlier-ending path first) */
-                    return a.back() < b.back();
-                }
-            );
+    // Mutex for merging
+    std::mutex map_mutex;
+
+    #pragma omp parallel num_threads(num_threads)
+    {
+        std::map<uint64_t, int32_t> local_map;
+
+        #pragma omp for nowait
+        for (int32_t r = 0; r < num_reads; r++) {
+            for (auto hash : Read_hashes[r]) {
+                local_map[hash] += 1;
+            }
+        }
+
+        // Merge local_map into global map (serial part)
+        std::lock_guard<std::mutex> lock(map_mutex);
+        for (const auto& kv : local_map) {
+            kmer_count[kv.first] += kv.second;
         }
     }
+
+    // // print first 10 elements from kmer_count
+    // for (auto it = kmer_count.begin(); it != std::next(kmer_count.begin(), 1000) && it != kmer_count.end(); ++it) {
+    //     fprintf(stderr, "[%lu, %d]\n", it->first, it->second);
+    // }
+
+    // exit(0);
+
+
+    Read_hashes.clear();
+
+    // build {multiplicity, freq} table of kmers
+    std::map<int32_t, int32_t> kmer_freq;
+    std::map<int32_t, std::vector<uint64_t>> rev_kmer_freq;
+    for (const auto& kv : kmer_count) {
+        kmer_freq[kv.second] += 1;
+        rev_kmer_freq[kv.second].push_back(kv.first);
+    }
+
+    std::vector<HistBin> Hist_kmer; // {multiplicity, freq}
+    for (const auto& kv : kmer_freq) {
+        Hist_kmer.push_back({(int)kv.first, (double)kv.second});
+    }
+
+    // print first 40 elements from Hist_kmer
+    for (size_t i = 0; i < std::min((size_t)40, Hist_kmer.size()); i++) {
+        fprintf(stderr, "[%d, %.2f]\n", Hist_kmer[i].multiplicity, Hist_kmer[i].freq);
+    }
+
+    // find max_multiplicity and max_freq
+    int max_multiplicity = 0;
+    double max_freq = 0.0;
+    for (const auto& bin : Hist_kmer) {
+        if (bin.multiplicity > max_multiplicity) {
+            max_multiplicity = bin.multiplicity;
+        }
+        if (bin.freq > max_freq) {
+            max_freq = bin.freq;
+        }
+    }
+
+    // print max_multiplicity and max_freq
+    fprintf(stderr, "Max Multiplicity: %d, Max Frequency: %.2f\n", max_multiplicity, max_freq);
+
+    KGFitOptions opt;
+    opt.max_copy = 10;
+    opt.max_x_use = max_multiplicity;
+    opt.u_hi = max_multiplicity;
+    opt.fit_error = true;
+    opt.fit_varw  = true;
+
+    auto res = KGFitterBO::fit(Hist_kmer, opt);
+    KmerGenieDiploidLike model(res.P);
+
+    // std::cerr << "best NLL="<<res.nll<<"\n"
+    //     << "u_v="<<res.P.u_v<<" (hom SD) sd_v="<<res.P.sd_v
+    //     << "\n(het VAR) var="<<res.P.var_w
+    //     << "\n(proportion het)p_d="<<res.P.p_d
+    //     << "\nzp_copy="<<res.P.zp_copy<<" zp_copy_het="<<res.P.zp_copy_het
+    //     << "\n(zipf exponent) s="<<res.P.err_shape
+    //     << "\nmax_copy="<<res.P.max_copy<<"\n";
+
+    fprintf(stderr,
+    "[M::%s] Fitted model: best NLL=%.2f, u_v=%.2f (hom mean), sd_v=%.2f (hom SD), "
+    "var_w=%.2f, p_d=%.2f, zp_copy=%.2f, zp_copy_het=%.2f, err_shape=%.2f, max_copy=%d\n",
+    __func__,
+    res.nll,
+    res.P.u_v,
+    res.P.sd_v,
+    res.P.var_w,
+    res.P.p_d,
+    res.P.zp_copy,        // %.2f (was %d)
+    res.P.zp_copy_het,    // %.2f (was %d)
+    res.P.err_shape,
+    res.P.max_copy        // %d is correct for the int
+    );
+        
+    // 2) build two lookup sets
+    std::unordered_set<uint64_t> S_homo, S_hetero, S_ambiguous;
+    S_homo.reserve(kmer_count.size());
+    S_hetero.reserve(kmer_count.size());
+    S_ambiguous.reserve(kmer_count.size());
+    int32_t total_count = 0;
+    
+    KmerGenieDiploidLike M(res.P);
+    // classify a few multiplicities
+    for (int f = 1; f < max_multiplicity; f++) {
+        auto r = M.classify(f);
+        const char* L = (r.label==KGPosterior::HET?"HET":(r.label==KGPosterior::HOM?"HOM":"AMB"));
+        if(f <= 30) std::cout << "f="<<f<<"  post[het,hom]=("<<r.p_het<<","<<r.p_hom<<")  "<<L<<"\n";
+        // fill S_homo, S_hetero, S_ambiguous with
+        if (r.label == KGPosterior::HOM) {
+            // rev_kmer_freq
+            for (auto& kmer : rev_kmer_freq[f]) {
+                S_homo.insert(kmer);
+                total_count++;
+            }
+        } else if (r.label == KGPosterior::HET) {
+            for (auto& kmer : rev_kmer_freq[f]) {
+                S_hetero.insert(kmer);
+                total_count++;
+            }
+        } else {
+            for (auto& kmer : rev_kmer_freq[f]) {
+                S_ambiguous.insert(kmer);
+                total_count++;
+            }
+        }
+    }
+
+    // print the fraction of S_homo, S_hetero and S_ambiguous
+    fprintf(stderr, "[M::%s] Classification done. Homozygous: %.2f%%, Heterozygous: %.2f%%, Ambiguous: %.2f%%, Total kmers: %d\n",
+        __func__,
+        100.0 * S_homo.size() / total_count,
+        100.0 * S_hetero.size() / total_count,
+        100.0 * S_ambiguous.size() / total_count,
+        total_count);
+
+    // before the loop, use plain ints
+    int64_t total_kmers = 0;
+    int64_t count_homo  = 0;
+    int64_t count_hetero= 0;
+    int64_t count_ambiguous= 0;
+
+
+    std::vector<bool> homo_bv(count_sp_r,0);
+    std::vector<bool> het_bv(count_sp_r,0);
+    #pragma omp parallel for reduction(+:total_kmers,count_homo,count_hetero,count_ambiguous) num_threads(num_threads)
+    for (int32_t r = 0; r < count_sp_r; ++r) {
+        auto it = Sp_R_hash.find(r);
+        if (it == Sp_R_hash.end()) continue;
+        uint64_t hash = it->second;
+        bool is_homo = (S_homo.count(hash) != 0);
+        bool is_hetero = (S_hetero.count(hash) != 0);
+        bool is_ambiguous = (S_ambiguous.count(hash) != 0);
+
+        if (is_homo + is_hetero + is_ambiguous == 0 ) continue;
+
+        // check only one of is_homo, is_hetero, is_ambiguous is true
+        if (is_homo + is_hetero + is_ambiguous != 1) { // Sanity check
+            fprintf(stderr, "[M::%s] Error: k-mer %lu classified as multiple types\n",
+                __func__, hash);
+            // print multiple classified types as well like, homo, hetero and ambigous
+            fprintf(stderr, "[M::%s] k-mer %lu classified as homo: %d, hetero: %d, ambiguous: %d\n",
+                __func__, hash, is_homo, is_hetero, is_ambiguous);
+            exit(1);
+        }
+
+        total_kmers++;
+        if(is_homo){
+            homo_bv[r] = 1;
+            count_homo++;
+        }else if (is_hetero){
+            het_bv[r] = 1;
+            count_hetero++;
+        }else{
+            count_ambiguous++;
+        }
+
+    }
+
+    // now you can compute your fractions just as before
+    float frac_h  = float(count_homo)   / std::max<int64_t>(1, total_kmers);
+    float frac_he = float(count_hetero) / std::max<int64_t>(1, total_kmers);
+    fprintf(stderr,
+        "[M::%s] Phasing done. Homozygous: %.2f%%, Heterozygous: %.2f%%, Total kmers: %lld\n",
+        __func__, frac_h*100, frac_he*100, total_kmers);
+
+    // clear Anchor_hits_homo[][h]
+
+
+
+    // END kmer classifier *****************************************************
+    
 
     // for(int r = 0; r < Anchor_hits.size(); r++){
     //     std::cout << "\n\nr (color): " << r << std::endl;
@@ -2070,6 +3248,8 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
     * ---------------------------------------------------------------- */ 
     std::vector<std::vector<int32_t>> color(expanded_graph_adj_list.size(),std::vector<int32_t>());
     std::vector<std::vector<AnchorRec>> anchorsByHap(paths.size());   // Hₕ
+    std::vector<int32_t> color_to_anchor;                // color_id -> anchor_id (a)
+    color_to_anchor.reserve(Anchor_hits.size());
 
     int nextID = static_cast<int>(expanded_graph_adj_list.size());    // first
                                                                     // free ID
@@ -2120,7 +3300,10 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
                                         nodeID});
             }
         }
-        if(new_color_used) colourID++;
+        if(new_color_used){ 
+            color_to_anchor.push_back(a);   // map color_id -> anchor_id
+            colourID++;
+        }
     }
     
     std::unordered_set<int> colours_set;
@@ -2258,6 +3441,7 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
     // DP approximation approach
     if(!diploid){
         // HAPLOID CASE
+
         std::vector<int> dp_path = dp_approximation_solver(g, recombination_limit);
         std::string dp_output;
         for(auto u_original : dp_path){
@@ -2274,85 +3458,87 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
         }
         dp_file_stream.close();
 
+
+
     }else{
         // DIPLOID CASE
+
+        std::vector<bool> color_homo_bv(colours_set.size(), 0);
+        std::vector<bool> color_het_bv(colours_set.size(), 0);
+
+        for(const auto& c : colours_set){
+            int anchor = color_to_anchor[c];
+            if(homo_bv[anchor]){
+                color_homo_bv[c] = 1;
+            }else if(het_bv[anchor]){
+                color_het_bv[c] = 1;
+            }
+        }
+
+
+
+        // count number of weighted edges
+        int weighted_edge_count = 0;
+        for(int i = 0; i < g.adj_list.size(); i++){
+            for(const auto& [u,w] : g.adj_list[i]){
+                if(w > 0){
+                    weighted_edge_count++;
+                }
+            }
+        }
+
+
+        std::cout << "Number of weighted (recombination) edges: " << weighted_edge_count << std::endl;
+
+        // Exact (ILP) diploid solution under the same budget:
+        //auto [opt_r1, opt_r2, opt_s1, opt_s2] = optimal_diploid_solver(g, recombination_limit, color_homo_bv, color_het_bv);
+
         std::cout << "Leveling" << std::endl;
         int width = g.strict_bfs_levelize_and_reorder();
         //g.print();
         std::cout << "number of levels = " << g.vertices_in_level.size() << std::endl;
         std::cout << "max level width = " << width << std::endl;
 
-
-        std::vector<bool> homo_bv(colours_set.size(),0);
-
-        std::vector<int> color_counts(colours_set.size(), 0);
-
-        for(int u = 0; u < g.adj_list.size(); u++){
-            for(auto c : g.color.at(u)){
-                //std::cout << u << ", " << colours_set.size() << ", " << c << std::endl;
-                if(c != -1){
-                    //std::cout << u << ", " << colours_set.size() << ", " << c << std::endl;
-                    color_counts.at(c)++;
-                }
-                //color_counts.at(c)++;
-            }
+        int sum_of_level_widths = 0;
+        for(auto l : g.vertices_in_level){
+            sum_of_level_widths += l.size();
         }
+        std::cout << "Average level width = " << sum_of_level_widths/(float)g.vertices_in_level.size() << std::endl;
 
-        std::sort(color_counts.begin(), color_counts.end(),std::greater<int>());        
-        // Compute average of top N/2 values
-        int32_t average_top_kmer_count;
-        size_t top_n = color_counts.size() / 2;
-        if (top_n > 0) {
-            int64_t sum = 0;
-            for (size_t i = 0; i < top_n; ++i) {
-                sum += color_counts[i];
-            }
-            average_top_kmer_count = static_cast<int32_t>(sum / top_n);
-        }
-
-        float homo_fraction = 0.5f; 
-        int   homo_threshold = static_cast<int>(std::ceil(homo_fraction * average_top_kmer_count));
+        std::vector<std::tuple<int, int, std::string, std::string>> solutions = diploid_dp_approximation_solver(g, recombination_limit, color_homo_bv, color_het_bv);
         
-        // partition colors into homozygous and heterozygous
-        int homo_count = 0;
-        int hetero_count = 0;
-        for(int c = 0; c < color_counts.size(); c++){
-            if(color_counts[c] > homo_threshold){
-                homo_bv[c] = 1;
-                homo_count++;
-            }else{
-                hetero_count++;
+        for(const auto& [r1, r2, s1, s2] : solutions){
+            std::cout << r1 << ", " << r2 << ", " << s1.length() << ", " << s2.length() << std::endl;
+        }
+
+        if(solutions.size() == 1){
+            // int best_sol = evaluate_diploid_solution_based_on_kmers(solutions, validation_reads);
+            // std::cout << "Best sol based validation reads:" 
+            //     << " r1 = " << std::get<0>(solutions[best_sol]) 
+            //     << " r2 = " << std::get<1>(solutions[best_sol]) 
+            //     << std::endl;
+
+            // const auto& [r1, r2, s1, s2] = solutions.at(best_sol);
+
+            const auto& [r1, r2, s1, s2] = solutions.at(0);
+            std::ofstream dp_file_stream(hap_file, std::ios::out);
+            dp_file_stream << ">" << "sol_1" << " bp:" << s1.size() << std::endl;
+            // write the path_str to the file 80 characters per line
+            for (size_t i = 0; i < s1.size(); i += 80) {
+                dp_file_stream << s1.substr(i, 80) << std::endl;
             }
+            dp_file_stream << ">" << "sol_2" << " bp:" << s2.size() << std::endl;
+            // write the path_str to the file 80 characters per line
+            for (size_t i = 0; i < s2.size(); i += 80) {
+                dp_file_stream << s2.substr(i, 80) << std::endl;
+            }
+            dp_file_stream.close();
+        }else{
+            std::cout << "No clear solution, output file not written." << std::endl;
         }
-        std::cout << "homozygous colors: " << homo_count << " heterozygous colors: " << hetero_count << std::endl;
-
-        // run banded dp using width
-        auto [p1, p2] = diploid_dp_approximation_solver(g, recombination_limit, homo_bv);
-
-        std::string dp_output_1;
-        for(auto u_original : p1){
-            dp_output_1 += node_seq[u_original];
-        }
-
-        std::string dp_output_2;
-        for(auto u_original : p2){
-            dp_output_2 += node_seq[u_original];
-        }
-
-        std::ofstream dp_file_stream(hap_file, std::ios::out);
-        dp_file_stream << ">" << "sol_1" << " bp:" << p1.size() << std::endl;
-        // write the path_str to the file 80 characters per line
-        for (size_t i = 0; i < dp_output_1.size(); i += 80) {
-            dp_file_stream << dp_output_1.substr(i, 80) << std::endl;
-        }
-        dp_file_stream << ">" << "sol_2" << " bp:" << p1.size() << std::endl;
-        // write the path_str to the file 80 characters per line
-        for (size_t i = 0; i < dp_output_2.size(); i += 80) {
-            dp_file_stream << dp_output_2.substr(i, 80) << std::endl;
-        }
-        dp_file_stream.close();
     }
 
 }
+
 
 
