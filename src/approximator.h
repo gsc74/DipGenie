@@ -1,3 +1,4 @@
+#pragma once
 #include <iostream>
 #include <stdlib.h>
 #include <omp.h>
@@ -84,10 +85,13 @@ class Approximator {
         void read_ip_reads(std::vector<std::pair<std::string, std::string>> &ip_reads, std::string ip_reads_file);
         void approximate(std::vector<std::pair<std::string, std::string>> &ip_reads, bool diploid);
         std::vector<std::pair<uint64_t, Anchor>> index_kmers(int32_t hap);
-        std::set<uint64_t> compute_hashes(std::string &read_seq);
+        std::vector<uint64_t> index_string(std::string haplotype);
+        std::set<uint64_t> compute_hashes(std::string &read_seq, int seed);
         std::vector<std::vector<std::vector<int32_t>>> compute_anchors(std::vector<std::pair<uint64_t, Anchor>> &minimizers, std::map<uint64_t, int32_t> &read_hashes);
         std::vector<int> dp_approximation_solver(Graph g, int R);
         //std::vector<int> diploid_dp_approximation_solver(Graph g, int R, std::vector<bool> homo_hetero_bv);
-        std::pair<std::vector<int>,std::vector<int>> diploid_dp_approximation_solver(Graph g, int R, std::vector<bool> homo_bv);
-
+        std::vector<std::tuple<int, int, std::string, std::string>> diploid_dp_approximation_solver(Graph g, int R, std::vector<bool> color_homo_bv, std::vector<bool> color_het_bv);
+        int evaluate_diploid_solution_based_on_kmers(std::vector<std::tuple<int, int, std::string, std::string>> solutions, std::vector<std::pair<std::string, std::string>> validation_reads);
+        std::vector<uint64_t> compute_minimizer_hits(std::vector<uint64_t> &minimizers, std::map<uint64_t, int32_t> &read_hashes);
+        std::tuple<int,int,std::string,std::string> optimal_diploid_solver(Graph g, int R, const std::vector<bool>& homo_bv);
 };
