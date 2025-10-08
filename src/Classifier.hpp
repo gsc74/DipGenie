@@ -24,10 +24,10 @@ struct KGParams {
     int    max_copy     = 5;     // truncate the zeta mixture at this copy number 
     // classification option
     double amb_margin   = 0.05;  // min posterior gap to avoid AMBIGUOUS
-    double p_e = 0.05;       // small but non-zero error prior
+    double p_e = 0.01;       // small but non-zero error prior
     double err_shape = 2.0;  // s>1; 1.8–3.0 typical
     bool   treat_error_as_ambiguous = true; // label ERROR as AMB (or keep ERROR explicitly)
-    double reject_cost = 0.4;
+    double reject_cost = 0.4; // need at least 1 - reject cost probability to not mark as AMB
 };
 
 struct KGPosterior {
@@ -73,7 +73,7 @@ public:
         double pmax = std::max({perr, phet, phom});
 
         KGPosterior::Label L = KGPosterior::AMBIGUOUS;
-        if (pmax >= 1.0 - rho) {
+        if (phet > phom || pmax >= 1.0 - rho) {
             if (pmax == perr) {
                 L = P_.treat_error_as_ambiguous ? KGPosterior::AMBIGUOUS : KGPosterior::ERR/* add KGPosterior::ERROR if you want */;
             } else if (pmax == phet) {
