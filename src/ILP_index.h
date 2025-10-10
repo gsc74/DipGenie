@@ -11,6 +11,9 @@
 #include "kvec-km.h"
 #include "sys.h"
 
+#include "Classifier.hpp"
+#include "Fitter.hpp"
+
 // CPP
 #include <vector>
 #include <string>
