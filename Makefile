@@ -1,8 +1,8 @@
-CXX = g++ -O3 -std=c++17 -DUSE_BAYESOPT
-CXXFLAGS = -fopenmp -pthread -march=native -mtune=native -O3 -lgurobi_c++ -lgurobi120 -lm -lz -lpthread -ldl -lbayesopt -lnlopt
+CXX = g++ -O3 -std=c++17 
+CXXFLAGS = -fopenmp -pthread -march=native -mtune=native -O3 -lgurobi_c++ -lgurobi110 -lm -lz -lpthread -ldl -lbayesopt -lnlopt
 GUROBI_HOME = /home/ghanshyam/opt/gurobi1202/linux64
-INCLUDES = -I./extra/include/ -I/data/nfs_home/ghanshy1/RECOMB/bayesopt/include
-LIBS = -L./extra/lib/ -L/data/nfs_home/ghanshy1/RECOMB/bayesopt/lib
+INCLUDES = -I./extra/include/ -I/usr/local/include
+LIBS = -L$(HOME)/PHI/extra/lib -L/usr/local/lib 
 
 all: PHI2
 
