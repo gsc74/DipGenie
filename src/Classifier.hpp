@@ -68,20 +68,14 @@ public:
         double Z = std::max(a + b + c, 1e-300);
         double perr = a / Z, phet = b / Z, phom = c / Z;
 
-        // Reject-option (rigorous): only call if posterior >= 1 - rho
-        double rho = P_.reject_cost; // add this param (e.g., 0.1)
-        double pmax = std::max({perr, phet, phom});
-
-        KGPosterior::Label L = KGPosterior::AMBIGUOUS;
-        if (phet > phom || pmax >= 1.0 - rho) {
-            if (pmax == perr) {
-                L = P_.treat_error_as_ambiguous ? KGPosterior::AMBIGUOUS : KGPosterior::ERR/* add KGPosterior::ERROR if you want */;
-            } else if (pmax == phet) {
-                L = KGPosterior::HET;
-            } else {
-                L = KGPosterior::HOM;
-            }
+        // simified, always hom or het
+        KGPosterior::Label L;
+        if (x == 1 || phet >= phom) {
+            L = KGPosterior::HET;
+        } else {
+            L = KGPosterior::HOM;
         }
+        //}
         return {/*p_het=*/phet, /*p_hom=*/phom, L};
     }
 
