@@ -32,9 +32,9 @@ struct KGFitOptions {
 
     // bounds
     double u_lo = 1,   u_hi = 20.0; // hom mean
-    double sd_lo = 0.5,  sd_hi = 4.0; // hom sd
-    double varw_lo = 0.5, varw_hi = 4.0;  // het variance
-    double pd_lo = 0.35,  pd_hi = 1.0; // proportion het
+    double sd_lo = 0.5,  sd_hi = 2.0; // hom sd
+    double varw_lo = 0.71, varw_hi = 4.0;  // het variance
+    double pd_lo = 0.1,  pd_hi = 1.0; // proportion het
     double pe_lo = 0.0,  pe_hi = 0.1; // proportion error (ambigous)
     double s_lo  = 1.01,  s_hi  = 4.0; // shape (exponent)
     double zp_lo = 1.01, zp_hi = 4.0; 
