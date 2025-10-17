@@ -180,84 +180,104 @@ public:
 int compactify (int old_sink)
 {
     const std::size_t n = adj_list.size();
+    // Optional sanity: all vertex-parallel arrays same size
+    assert(color.size() == n && original_vertex.size() == n && haplotype.size() == (int)n);
 
     /* ---------- 1. degree vectors -------------------------------- */
     std::vector<int> indeg (n,0), outdeg (n,0);
     std::vector<int> indeg0(n,0), outdeg0(n,0);   // 0-weight only
 
-    for (std::size_t u = 0; u < n; ++u)
+    for (std::size_t u = 0; u < n; ++u) {
         for (auto [v,w] : adj_list[u]) {
+            // guard v
+            assert((std::size_t)v < n);
             ++outdeg[u]; ++indeg[v];
             if (w == 0) { ++outdeg0[u]; ++indeg0[v]; }
         }
+    }
 
     /* ---------- 2. new graph containers -------------------------- */
-    std::vector<std::vector<int>>                new_color;
-    std::vector<std::vector<int>>                new_orig;
-    std::vector<std::vector<std::pair<int,int>>> new_adj;
-    std::vector<int>                             new_hap;   // <-- carry haplotype
-    new_color.reserve(n);
-    new_orig .reserve(n);
-    new_adj  .reserve(n);
-    new_hap  .reserve(n);
+    std::vector<std::vector<int>>                new_color; new_color.reserve(n);
+    std::vector<std::vector<int>>                new_orig;  new_orig .reserve(n);
+    std::vector<std::vector<std::pair<int,int>>> new_adj;   new_adj  .reserve(n);
+    std::vector<int>                             new_hap;   new_hap  .reserve(n);
 
     /* ---------- 3. helpers --------------------------------------- */
-    std::vector<int>  id_map (n, -1);   // old id → new id (−1 = not yet)
-    std::vector<char> done   (n, 0);    // 0 = not processed, 1 = finished
-    std::vector<char> swallowed(n,0);   // interior vertices already removed
+    std::vector<int>  id_map   (n, -1);   // old id → new id
+    std::vector<char> done     (n, 0);    // finished as a "kept" vertex
+    std::vector<char> swallowed(n, 0);    // interior vertices already removed
 
     auto add_vertex = [&](std::size_t old_id) -> int {
-        int new_id           = static_cast<int>(new_adj.size());
-        id_map[old_id]       = new_id;
-        new_adj .emplace_back();
-        new_color.emplace_back( color[old_id] );
-        new_orig .emplace_back( original_vertex[old_id] );
-        new_hap  .emplace_back( haplotype[old_id] );   // <-- set haplotype for the kept vertex
+        int new_id = (int)new_adj.size();
+        id_map[old_id] = new_id;
+        new_adj  .emplace_back();
+        new_color.emplace_back(color[old_id]);
+        new_orig .emplace_back(original_vertex[old_id]);
+        new_hap  .emplace_back(haplotype[old_id]);
         return new_id;
+    };
+
+    auto unique_zero_succ = [&](std::size_t u) -> int {
+        int succ = -1;
+        for (auto [v, w] : adj_list[u]) {
+            if (w != 0) continue;
+            if (succ == -1) succ = v;
+            else return -2; // more than one 0-edge (shouldn't happen under your criteria)
+        }
+        return succ; // -1 means none
     };
 
     /* ---------- 4. sweep every vertex ---------------------------- */
     for (std::size_t u0 = 0; u0 < n; ++u0)
     {
-        if (done[u0]) continue;                          // already processed
+        if (done[u0]) continue;
 
-        /* decide whether u0 must be *kept* as an explicit vertex     */
+        // keep u0 if: has colors OR any nonzero-weight indeg/outdeg OR not (indeg0==outdeg0==1)
         bool keep =
-              !color[u0].empty()           ||
-              indeg0[u0] != indeg[u0]      || outdeg0[u0] != outdeg[u0] ||
-              indeg0[u0] != 1              || outdeg0[u0] != 1;
+              !color[u0].empty() ||
+              indeg0[u0] != indeg[u0] || outdeg0[u0] != outdeg[u0] ||
+              indeg0[u0] != 1     || outdeg0[u0] != 1;
 
-        if (!keep) continue;                             // interior chain node
+        if (!keep) continue; // interior 0-chain node; will be swallowed from its predecessor
 
-        /* obtain (or reuse) new id for u0 */
         int new_u = (id_map[u0] != -1) ? id_map[u0] : add_vertex(u0);
         done[u0] = 1;
 
-        for (auto [v, w] : adj_list[u0])
-        {
-            /* weight-1 (recombination) edges are copied verbatim */
+        for (auto [v, w] : adj_list[u0]) {
             if (w != 0) {
                 int nv = (id_map[v] != -1) ? id_map[v] : add_vertex(v);
                 new_adj[new_u].emplace_back(nv, w);
                 continue;
             }
 
-            /* -------- follow the 0-weight chain ---------------- */
+            // Follow the 0-weight chain safely
             std::size_t cur = v;
+            // light cycle guard for pathological inputs
+            int hops = 0, hop_limit = (int)n + 5;
+
             while (!swallowed[cur] &&
-                   color[cur].empty()              &&
+                   color[cur].empty() &&
                    indeg0[cur] == 1 && outdeg0[cur] == 1 &&
                    indeg [cur] == 1 && outdeg [cur] == 1)
             {
-                swallowed[cur] = 1;                          // consume
-                new_orig[new_u].insert(new_orig[new_u].end(),
-                                       original_vertex[cur].begin(),
-                                       original_vertex[cur].end());
-                cur = adj_list[cur][0].first;                // unique 0-edge
+                swallowed[cur] = 1;
+                // append original indices
+                auto &dst = new_orig[new_u];
+                const auto &src = original_vertex[cur];
+                dst.insert(dst.end(), src.begin(), src.end());
+
+                int nxt = unique_zero_succ(cur);
+                // must exist exactly one 0-edge by the predicates above
+                assert(nxt >= 0 && "degree counters inconsistent: expected exactly one 0-edge");
+                cur = (std::size_t)nxt;
+
+                if (++hops > hop_limit) {
+                    throw std::runtime_error("compactify: suspected 0-weight cycle");
+                }
             }
 
             int nv = (id_map[cur] != -1) ? id_map[cur] : add_vertex(cur);
-            new_adj[new_u].emplace_back(nv, 0);              // still weight 0
+            new_adj[new_u].emplace_back(nv, 0);
         }
     }
 
@@ -265,170 +285,230 @@ int compactify (int old_sink)
     adj_list.swap(new_adj);
     color    .swap(new_color);
     original_vertex.swap(new_orig);
-    haplotype.swap(new_hap);                                  // <-- swap haplotype, too
+    haplotype.swap(new_hap);
 
-    /* sanity check */
     assert(adj_list.size() <= n && "compactify must not increase |V|");
 
-    return id_map[old_sink];
+    /* ---------- 6. map sink even if it was swallowed ------------- */
+    int new_sink = -1;
+    if (old_sink >= 0 && (std::size_t)old_sink < n) {
+        if (id_map[old_sink] != -1) {
+            new_sink = id_map[old_sink];
+        } else {
+            // walk forward along 0-edges until we hit a kept vertex
+            std::size_t cur = (std::size_t)old_sink;
+            int steps = 0, step_limit = (int)n + 5;
+            std::vector<char> seen(n, 0);
+            while (steps++ <= step_limit && !seen[cur]) {
+                seen[cur] = 1;
+                int nxt = unique_zero_succ(cur);
+                if (nxt < 0) break;                 // no 0-edge; cannot map further
+                if (id_map[(std::size_t)nxt] != -1) { new_sink = id_map[(std::size_t)nxt]; break; }
+                cur = (std::size_t)nxt;
+            }
+            // If still -1, caller should handle "no mapped sink"
+        }
+    }
+    return new_sink;
 }
+
 
 
 int strict_bfs_levelize_and_reorder()
 {
+    // ---------- 0) Remove isolated vertices (indeg==0 && outdeg==0) ----------
+    {
+        const std::size_t n = adj_list.size();
+        if (n == 0) return 0;
 
-
-    const std::size_t n = adj_list.size();
-        std::vector<int> indeg(n, 0);
-        for (auto& nbrs : adj_list)
-            for (auto& [v, w] : nbrs)
-                ++indeg[v];
-
-    int source = -1;
-    for (std::size_t v = 0; v < n; ++v)
-        if (indeg[v] == 0){
-            if(source == -1){
-                source  = v;
-            }else{
-                std::cout << "Uh oh, multiple potential sources found while leveling" << std::endl;
-                exit(-1);
-            }
+        std::vector<int> indeg(n, 0), outdeg(n, 0);
+        for (std::size_t u = 0; u < n; ++u) {
+            const auto& nbrs = adj_list[u];
+            outdeg[u] = static_cast<int>(nbrs.size());
+            for (const auto& [v, w] : nbrs) { (void)w; ++indeg[v]; }
         }
-    
-    const int n0 = static_cast<int>(adj_list.size());
-    if (n0 == 0) return 0;
-    if (source < 0 || source >= n0) throw std::runtime_error("bad source index");
 
-    // ---------- 1) BFS from source: shortest hop distances ----------
-    std::vector<int> dist(n0, -1);
-    std::queue<int> q;
-    dist[source] = 0;
-    q.push(source);
-    while (!q.empty()) {
-        int u = q.front(); q.pop();
-        for (auto [v, w] : adj_list[u]) {
-            if (dist[v] == -1) {
-                dist[v] = dist[u] + 1;
-                q.push(v);
+        // mark vertices to keep (non-isolated)
+        std::vector<char> keep(n, 0);
+        int n_keep = 0;
+        for (std::size_t v = 0; v < n; ++v) {
+            if (indeg[v] + outdeg[v] > 0) { keep[v] = 1; ++n_keep; }
+        }
+
+        // If nothing remains, clear per-level buckets and return
+        if (n_keep == 0) {
+            adj_list.clear();
+            color.clear();
+            original_vertex.clear();
+            haplotype.clear();
+            vertices_in_level.clear();
+            level.clear();
+            return 0;
+        }
+
+        // If we actually removed something, rebuild graph with compact ids
+        if ((int)n != n_keep) {
+            std::vector<int> new_id(n, -1);
+            int cur = 0;
+            for (std::size_t v = 0; v < n; ++v) if (keep[v]) new_id[v] = cur++;
+
+            // remap adjacency
+            std::vector<std::vector<std::pair<int,int>>> new_adj(n_keep);
+            for (std::size_t u = 0; u < n; ++u) if (keep[u]) {
+                int uu = new_id[u];
+                for (auto [v, w] : adj_list[u]) if (keep[v]) {
+                    new_adj[uu].push_back({ new_id[v], w });
+                }
             }
+            adj_list.swap(new_adj);
+
+            // remap auxiliary arrays if sized like vertices
+            auto remap_vecvec_int = [&](std::vector<std::vector<int>>& A){
+                if (A.size() == n) {
+                    std::vector<std::vector<int>> B(n_keep);
+                    for (std::size_t v = 0; v < n; ++v) if (keep[v]) B[new_id[v]] = std::move(A[v]);
+                    A.swap(B);
+                }
+            };
+            auto remap_vec_int = [&](std::vector<int>& A){
+                if (A.size() == n) {
+                    std::vector<int> B(n_keep);
+                    for (std::size_t v = 0; v < n; ++v) if (keep[v]) B[new_id[v]] = A[v];
+                    A.swap(B);
+                }
+            };
+
+            remap_vecvec_int(color);
+            remap_vecvec_int(original_vertex);
+            remap_vec_int(haplotype);
+
+            // clear any stale structures tied to old n
+            vertices_in_level.clear();
+            level.clear();
         }
     }
 
-    // ---------- 2) Topological order (for DAG; throw if cycle) ----------
+    // ---------- leveling ----------
+
+    const std::size_t n = adj_list.size();
+    std::vector<int> indeg(n, 0), outdeg(n, 0);
+    for (std::size_t u = 0; u < n; ++u) {
+        const auto& nbrs = adj_list[u];
+        outdeg[u] = static_cast<int>(nbrs.size());
+        for (const auto& [v, w] : nbrs) { (void)w; ++indeg[v]; }
+    }
+
+    int source = -1;
+    for (std::size_t v = 0; v < n; ++v)
+        if (indeg[v] == 0 && outdeg[v] > 0){
+            if (source == -1) source = (int)v;
+            else { std::cout << "Uh oh, multiple potential sources found while leveling\n"; std::exit(-1); }
+        }
+
+    const int n0 = (int)adj_list.size();
+    if (n0 == 0) return 0;
+    if (source < 0 || source >= n0) throw std::runtime_error("bad source index");
+
+    // ---------- 1) BFS from source ----------
+    std::vector<int> dist(n0, -1);
+    std::queue<int> q;
+    dist[source] = 0; q.push(source);
+    while (!q.empty()) {
+        int u = q.front(); q.pop();
+        for (auto [v, w] : adj_list[u]) {
+            if (dist[v] == -1) { dist[v] = dist[u] + 1; q.push(v); }
+        }
+    }
+
+    // ---------- 2) Topological order (DAG required) ----------
     std::queue<int> qk;
     for (int v = 0; v < n0; ++v) if (indeg[v] == 0) qk.push(v);
-
     std::vector<int> topo; topo.reserve(n0);
     while (!qk.empty()) {
         int u = qk.front(); qk.pop();
         topo.push_back(u);
-        for (auto [v, w] : adj_list[u]) {
-            if (--indeg[v] == 0) qk.push(v);
-        }
+        for (auto [v, w] : adj_list[u]) if (--indeg[v] == 0) qk.push(v);
     }
-    if ((int)topo.size() != n0)
-        throw std::runtime_error("Graph contains a cycle; strict leveling requires a DAG");
+    if ((int)topo.size() != n0) throw std::runtime_error("Graph contains a cycle; strict leveling requires a DAG");
 
-    // ---------- 3) Seed levels from BFS; then lift to make edges forward ----------
-    // Unreached vertices start at 0; then lifting below will place them.
+    // ---------- 3) Seed/relax levels ----------
     std::vector<int> lvl(n0, 0);
     for (int v = 0; v < n0; ++v) if (dist[v] >= 0) lvl[v] = dist[v];
+    for (int u : topo) for (auto [v, w] : adj_list[u]) if (lvl[v] <= lvl[u]) lvl[v] = lvl[u] + 1;
 
-    // Longest-path style relaxation in topo order:
-    for (int u : topo) {
-        for (auto [v, w] : adj_list[u]) {
-            if (lvl[v] <= lvl[u]) lvl[v] = lvl[u] + 1;
-        }
-    }
-
-    // ---------- 4) Insert dummy vertices for edges that skip levels ----------
-    // Build new arrays; start by copying originals (original nodes keep their data/levels).
+    // ---------- 4) Insert dummies for skipped levels (unchanged) ----------
     std::vector<std::vector<std::pair<int,int>>> next_adj(n0);
     std::vector<std::vector<int>>                next_color = color;
     std::vector<std::vector<int>>                next_orig  = original_vertex;
     std::vector<int>                             next_lvl   = lvl;
-    std::vector<int>                             next_hap   = haplotype;   // <-- carry haplotype
+    std::vector<int>                             next_hap   = haplotype;
 
-    auto add_dummy = [&](int new_level, int hap, int inherit_from) -> int {  // <-- pass hap to set for dummy
-        int id = static_cast<int>(next_adj.size());
+    auto add_dummy = [&](int new_level, int hap, int inherit_from) -> int {
+        int id = (int)next_adj.size();
         next_adj.emplace_back();
-        next_color.emplace_back();     // empty
+        next_color.emplace_back();
         next_orig.emplace_back(next_orig[inherit_from]);
         next_lvl.push_back(new_level);
-        next_hap.push_back(hap);       // <-- set haplotype for dummy (e.g., inherit from u)
+        next_hap.push_back(hap);
         return id;
     };
 
-    for (int u = 0; u < n0; ++u) {
+    const int n0_now = n0;
+    for (int u = 0; u < n0_now; ++u) {
         for (auto [v, w] : adj_list[u]) {
             int gap = next_lvl[v] - next_lvl[u] - 1;
             if (gap <= 0) {
-                // gap==0: edge goes to immediate next or same/earlier level;
-                // we already lifted levels so same/earlier won't happen; keep as-is.
                 next_adj[u].emplace_back(v, w);
             } else {
-                // create chain of 'gap' dummies at consecutive levels
                 int prev = u;
                 for (int step = 1; step <= gap; ++step) {
-                    int dummy = add_dummy(next_lvl[u] + step, haplotype[u], u); // <-- inherit hap from u
-                    // carry original weight on the first segment; remaining are 0
+                    int dummy = add_dummy(next_lvl[u] + step, haplotype[u], u);
                     next_adj[prev].emplace_back(dummy, (step == 1 ? w : 0));
                     prev = dummy;
                 }
-                // final segment to the original target with weight 0
                 next_adj[prev].emplace_back(v, 0);
             }
         }
     }
 
-    // Swap in strictly leveled graph (but not yet ordered by level)
     adj_list.swap(next_adj);
-    color   .swap(next_color);
+    color.swap(next_color);
     original_vertex.swap(next_orig);
-    level   .swap(next_lvl);
-    haplotype.swap(next_hap);                                  // <-- swap haplotype with leveled graph
+    level.swap(next_lvl);
+    haplotype.swap(next_hap);
 
-    // ---------- 5) Order vertices by (level, stable by old id) ----------
-    const int n1 = static_cast<int>(adj_list.size());
-    std::vector<int> order(n1);
-    for (int i = 0; i < n1; ++i) order[i] = i;
+    // ---------- 5) Order by (level, id), compute width ----------
+    const int n1 = (int)adj_list.size();
+    std::vector<int> order(n1); for (int i = 0; i < n1; ++i) order[i] = i;
 
     std::stable_sort(order.begin(), order.end(),
-        [&](int a, int b){
-            if (level[a] != level[b]) return level[a] < level[b];
-            return a < b;  // stable tie-breaker
-        });
+        [&](int a, int b){ return (level[a] != level[b]) ? (level[a] < level[b]) : (a < b); });
 
-    // Compute max width while we’re at it
     int max_level = 0;
     for (int v = 0; v < n1; ++v) if (level[v] > max_level) max_level = level[v];
     std::vector<int> width(max_level + 1, 0);
     for (int v = 0; v < n1; ++v) ++width[level[v]];
-    int max_width = 0;
-    for (int w : width) if (w > max_width) max_width = w;
+    int max_width = 0; for (int w : width) if (w > max_width) max_width = w;
 
-    // Build mapping old->new
     std::vector<int> new_id(n1, -1);
     for (int i = 0; i < n1; ++i) new_id[ order[i] ] = i;
 
-    // Reorder color/original/level/haplotype
     std::vector<std::vector<int>> new_color(n1);
-    std::vector<std::vector<int>> new_orig (n1);
+    std::vector<std::vector<int>> new_orig(n1);
     std::vector<int>              new_level(n1);
-    std::vector<int>              new_hap(n1);   // <-- reorder haplotype too
+    std::vector<int>              new_hap(n1);
     for (int i = 0; i < n1; ++i) {
         int old = order[i];
         new_color[i] = std::move(color[old]);
         new_orig [i] = std::move(original_vertex[old]);
         new_level[i] = level[old];
-        new_hap  [i] = haplotype[old];           // <-- carry hap in the same reorder
+        new_hap  [i] = haplotype[old];
     }
     color.swap(new_color);
     original_vertex.swap(new_orig);
     level.swap(new_level);
-    haplotype.swap(new_hap);                      // <-- swap in reordered haplotype
+    haplotype.swap(new_hap);
 
-    // Remap adjacency to new ids
     std::vector<std::vector<std::pair<int,int>>> new_adj(n1);
     for (int old_u = 0; old_u < n1; ++old_u) {
         int u = new_id[old_u];
@@ -439,7 +519,7 @@ int strict_bfs_levelize_and_reorder()
     }
     adj_list.swap(new_adj);
 
-    // ---------- 7) Build per-level buckets in topological order ----------
+    // ---------- 7) Build per-level buckets ----------
     vertices_in_level.clear();
     vertices_in_level.resize(max_level + 1);
     for (int u = 0; u < n1; ++u) {
@@ -447,6 +527,7 @@ int strict_bfs_levelize_and_reorder()
     }
     return max_width;
 }
+
 
 //
 };

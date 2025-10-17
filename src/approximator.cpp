@@ -521,6 +521,7 @@ std::vector<int> Approximator::dp_approximation_solver(Graph g, int R) {
         const auto& occ_count = occ_count_by_r[i];
         for(const auto& c: occ_count){
             avg += c.second;
+            //std::cout << c.first << ".second = " << c.second << std::endl;
         }
         avg = avg/occ_count.size();
         std::cout << "Approximation ratio certificate: " << avg << std::endl;
@@ -530,6 +531,7 @@ std::vector<int> Approximator::dp_approximation_solver(Graph g, int R) {
     int best_r = 0;
     double max_delta = 0;
     for (size_t i = 0; i + 1 < colors_by_r.size(); ++i) {
+        std::cout << "r: " << i << " true score: " << colors_by_r[i] << std::endl;
         int delta = colors_by_r[i + 1] - colors_by_r[i];
         if (std::abs(delta) > max_delta) max_delta = std::abs(delta);
     }
@@ -541,7 +543,7 @@ std::vector<int> Approximator::dp_approximation_solver(Graph g, int R) {
         std::cout << "r: " << r << " -> " << r + 1 << ", Δcolors: " << delta
                 << ", angle: " << angle_deg << "°" //<<", ed: " << edit_dist_by_r.at(i)
                 << std::endl;
-        if(angle_deg < 4){
+        if(angle_deg < 10){
             best_r = r;
             break;
         }
@@ -709,9 +711,13 @@ inline int union_size_union2x2(const std::vector<int>& A, const std::vector<int>
 }
 
 
-std::vector<int> gather_colors( Graph g, int start, int end ) { 
+#include <unordered_map>
+#include <unordered_set>
+#include <queue>
+#include <vector>
 
-    int last_level = g.level.at( end );
+std::vector<int> gather_colors(Graph g, int start, int end) {
+    int last_level = g.level.at(end);
     std::vector<int> colours;
 
     if (g.level.at(start) > last_level) return colours;
@@ -719,18 +725,27 @@ std::vector<int> gather_colors( Graph g, int start, int end ) {
     std::unordered_set<int> visited;
     std::queue<int> q;
 
+    // color -> seen at this level?
+    std::unordered_map<int, std::unordered_set<int>> seen_at_level;
+
     visited.insert(start);
     q.push(start);
 
     while (!q.empty()) {
         int u = q.front(); q.pop();
+        int lu = g.level[u];
 
-        // collect colors at u
+        // collect colors at u (once per level)
+        auto& seen_here = seen_at_level[lu];
         const auto& cols = g.color[u];
-        colours.insert(colours.end(), cols.begin(), cols.end());
+        for (int c : cols) {
+            if (seen_here.insert(c).second) {
+                colours.push_back(c);
+            }
+        }
 
         // expand along weight-0 edges to allowed levels
-        for (const auto& [v,w_uv]: g.adj_list[u]) {
+        for (const auto& [v, w_uv] : g.adj_list[u]) {
             if (w_uv != 0) continue;
             if (g.level[v] <= last_level && visited.insert(v).second) {
                 q.push(v);
@@ -740,6 +755,7 @@ std::vector<int> gather_colors( Graph g, int start, int end ) {
 
     return colours;
 }
+
 
 static std::string format_hms(double sec) {
     int s = (int)std::round(sec);
@@ -782,7 +798,7 @@ static void progress_bar(std::size_t current, std::size_t total,
 
 
 
-std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploid_dp_approximation_solver(Graph g, int R, std::vector<bool> color_homo_bv, std::vector<bool> color_het_bv) {
+std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploid_dp_approximation_solver(Graph g, int R, std::vector<bool> color_homo_bv) {
     
     
     // Build vertex -> position-in-its-level map once
@@ -800,13 +816,13 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
     //const std::uint8_t  NO_R   = std::numeric_limits<std::uint8_t>::max();
 
     struct dp_entry {
-        int value;  
+        int value;
+        int s_het;  // for approximation cert later
 
         std::vector<std::pair<int, int>> weighted_p1_edges; 
         std::vector<std::pair<int, int>> weighted_p2_edges; 
 
-        // optional constructor
-        dp_entry(int v = 0) : value(v) {}
+        dp_entry(int v = 0, int s = 0) : value(v), s_het(0) {}
     };
 
     // Rolling DP buffers
@@ -822,7 +838,6 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
     std::cout << "Creating hetro/hom-zygous colors per vertex lists" << std::endl;
     std::vector<std::vector<int>> homo_sorted(g.adj_list.size());
     std::vector<std::vector<int>> hetero_sorted(g.adj_list.size());
-    std::vector<std::vector<int>> amb_sorted(g.adj_list.size());
 
     auto sort_dedup = [](std::vector<int>& v){
         std::sort(v.begin(), v.end());
@@ -832,21 +847,17 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
     for (int v = 0; v < (int)g.adj_list.size(); ++v) {
         auto& H = homo_sorted[v];
         auto& T = hetero_sorted[v];
-        auto& A = amb_sorted[v];
         H.reserve(g.color[v].size());
         T.reserve(g.color[v].size());
         for (int c : g.color[v]) {
             if(color_homo_bv[c]){ 
                 H.push_back(c);
-            }else if (color_het_bv[c]){
-                T.push_back(c);
             }else{
-                A.push_back(c);
+                T.push_back(c);
             }
         }
         sort_dedup(H);
         sort_dedup(T);
-        sort_dedup(A);
     }
 
     // ---- DP profiling (lightweight) ---------------------------------
@@ -870,6 +881,8 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
 
     std::cout << "Running DP" << std::endl;
     auto t0 = std::chrono::steady_clock::now();
+
+
     for (int l = 0; l < L; ++l) {
 
         // progress bar (timed)
@@ -916,10 +929,12 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
 
         // ---------------- precompute score_deltas (timed) ----------------
         std::vector<int> score_deltas;
+        std::vector<int> s_hets;
         {
             auto _t = clock_::now();
 
             score_deltas.reserve((size_t)k * k * 4); // cheap guess to cut reallocs
+            s_hets.reserve((size_t)k * k * 4); // cheap guess to cut reallocs
             for (int i = 0; i < k; ++i) {
                 for (int j = 0; j < k; ++j) {
                     int u1 = Lnow[i];
@@ -936,9 +951,8 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
                                                             homo_sorted[u2], homo_sorted[v2] );
                             int symd  = symdiff_size_union2x2( hetero_sorted[u1], hetero_sorted[v1],
                                                             hetero_sorted[u2], hetero_sorted[v2] );
-                            int un = union_size_union2x2(amb_sorted[u1], amb_sorted[v1],
-                                                            amb_sorted[u2], amb_sorted[v2]);
-                            score_deltas.push_back(inter + symd + un);
+                            s_hets.push_back(symd);
+                            score_deltas.push_back(inter + symd);
                         }
                     }
                 }
@@ -991,6 +1005,7 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
                                     ++prof_relax_wins;
 
                                     dst.value = cand;
+                                    dst.s_het = s_hets[idx];
                                     dst.weighted_p1_edges = src.weighted_p1_edges;
                                     dst.weighted_p2_edges = src.weighted_p2_edges;
 
@@ -1248,6 +1263,7 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
 
 
     // Delta score approach
+    // computes score and approx cert.
     std::vector<int> score_by_r;
 
     for( int r = 0; r <= R; r++ ) {
@@ -1255,9 +1271,10 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         std::cout << "Computing score for r = " << r << std::endl;
         auto& sink_dp = at3(dp_cur, k_sink, 0, 0, r); // corresponds to single sink vertex
 
+        int s_het = sink_dp.s_het;
+
         std::vector<int> path_1_homo_colors;
         std::vector<int> path_1_hetero_colors;
-        std::vector<int> path_1_amb_colors;
 
         int start = g.vertices_in_level.at(0).at(0);
 
@@ -1287,10 +1304,8 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
 
                 if(color_homo_bv[c]){
                     path_1_homo_colors.push_back(c);
-                }else if(color_homo_bv[c]){
-                    path_1_hetero_colors.push_back(c);
                 }else{
-                    path_1_amb_colors.push_back(c);
+                    path_1_hetero_colors.push_back(c);
                 }
             }
             //std::cout << "Checking level of edge.second" << std::endl;
@@ -1321,7 +1336,6 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
 
         std::vector<int> path_2_homo_colors;
         std::vector<int> path_2_hetero_colors;
-        std::vector<int> path_2_amb_colors;
 
         start = g.vertices_in_level.at(0).at(0);
 
@@ -1347,10 +1361,8 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
 
                 if(color_homo_bv[c]){
                     path_2_homo_colors.push_back(c);
-                }else if(color_het_bv[c]){
-                    path_2_hetero_colors.push_back(c);
                 }else{
-                    path_2_amb_colors.push_back(c);
+                    path_2_hetero_colors.push_back(c);
                 }
             }
             if(g.level.at(edge.second) == L-1){
@@ -1374,19 +1386,50 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         }
 
 
+        // compute multiplicity values for hom
+        int m_G_hom = 0;
+        std::unordered_map<int, std::array<int,2>> cnt_hom; // {color -> {count_in_p1, count_in_p2}}
+
+        for (int c : path_1_homo_colors) cnt_hom[c][0]++;  // occ_c(path_1)
+        for (int c : path_2_homo_colors) cnt_hom[c][1]++;  // occ_c(path_2)
+
+        for (const auto& [color, ab] : cnt_hom) {
+            m_G_hom += std::max(ab[0], ab[1]);
+        }
+
+
+        // compute multiplicity values for het
+        int m_G_het = 0;
+        std::unordered_map<int, std::array<int,2>> cnt_het;
+        for (int c : path_1_hetero_colors) cnt_het[c][0]++;  // occ_c(path_1)
+        for (int c : path_2_hetero_colors) cnt_het[c][1]++;  // occ_c(path_2)
+
+        for (const auto& [color, ab] : cnt_het) {
+            m_G_het += ab[0] + ab[1];
+        }
+
         dedup_inplace(path_1_homo_colors);
         dedup_inplace(path_1_hetero_colors);
         dedup_inplace(path_2_homo_colors);
         dedup_inplace(path_2_hetero_colors);
-        dedup_inplace(path_1_amb_colors);
-        dedup_inplace(path_2_amb_colors);
+    
+    
         int intersection_count = intersection_size_sorted(path_1_homo_colors, path_2_homo_colors);
         int symdiff_count = symdiff_size_sorted(path_1_hetero_colors, path_2_hetero_colors);
-        int union_count = union_size_sorted(path_1_amb_colors, path_2_amb_colors);
+
+        // approximation cert.
+        float m_G_hom_avg = m_G_hom / (float) intersection_count;
+        float m_G_het_avg = m_G_het / (float) symdiff_count;
+        float m_bar = std::max(m_G_hom_avg, m_G_het_avg);
+
+        int loss_het = s_het - m_G_het;
+
+        std::cout << "Approximation certificate: multiplicative factor: " << m_bar 
+            << " additive factor: " << -loss_het/(float)m_G_het_avg << std::endl;
+    
         int score = intersection_count + symdiff_count;
         std::cout << "r: " << r << " score: " << score << std::endl;
         score_by_r.push_back(score);
-
 
     }
 
@@ -1405,7 +1448,7 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         std::cout << "r: " << r << " -> " << r + 1 << ", Δscore: " << delta
                 << ", angle: " << angle_deg << "°" //<<", ed: " << edit_dist_by_r.at(i)
                 << std::endl;
-        if(angle_deg < 4){
+        if(angle_deg < 10){
             best_r = r;
             auto best_sol = solutions.at(r);
             solutions.clear();
@@ -1821,11 +1864,10 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
     }
 
     // print the fraction of S_homo, S_hetero and S_ambiguous
-    fprintf(stderr, "[M::%s] Classification done. Homozygous: %.2f%%, Heterozygous: %.2f%%, Ambiguous: %.2f%%, Total kmers: %d\n",
+    fprintf(stderr, "[M::%s] Classification done. Homozygous: %.2f%%, Heterozygous: %.2f%%, Total kmers: %d\n",
         __func__,
         100.0 * S_homo.size() / total_count,
         100.0 * S_hetero.size() / total_count,
-        100.0 * S_ambiguous.size() / total_count,
         total_count);
 
     // before the loop, use plain ints
@@ -1966,6 +2008,8 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
                     if(vertex_w_uv[u][j] == -1){
                         expanded_graph_adj_list.push_back(std::vector<std::pair<int32_t, int32_t>>());
                         expanded_vertex_to_original_map.push_back(std::vector<int32_t>());
+                        vertex_to_haplotype_map.push_back(-1);
+                        
                         vertex_w_uv[u][j] = current_vertex;
                         current_vertex++;
   
@@ -2112,6 +2156,7 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
                     }
 
                     color.push_back({});                 // reserve colour slot
+                    vertex_to_haplotype_map.push_back(h);
                     nodeID = nextID++;
                 }
 
@@ -2209,39 +2254,40 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
         }
     }
 
-    //remove shunted simple chains
-    for (int h = 0; h < paths.size(); ++h)
-    {
-        //std::cout << "haplotype: " << h << std::endl;
-        auto& vec = anchorsByHap[h];
-        if (vec.empty()) continue;
+    // //remove shunted simple chains
+    // for haplotype path finding this is not needed
+    // for (int h = 0; h < paths.size(); ++h)
+    // {
+    //     //std::cout << "haplotype: " << h << std::endl;
+    //     auto& vec = anchorsByHap[h];
+    //     if (vec.empty()) continue;
 
-        for (auto& anc : vec)
-        {
-            // remove chain if possible
-            if(anc.startExp != anc.endExp){
-                bool simple = true;
-                for(int u = anc.startExp+1; u < anc.endExp; u++){
-                    if(expanded_graph_adj_list[u].size() > 0){
-                        simple = false;
-                    }
-                }
-                if(simple){
-                    auto& nbrs = expanded_graph_adj_list[anc.startExp];
-                    int v = anc.startExp+1; 
-                    nbrs.erase( std::remove_if(nbrs.begin(), nbrs.end(),
-                            [v](const std::pair<int,int>& p) {
-                                return p.first == v;   // keep only p.first ≠ v
-                                }), nbrs.end() );
-                    for(int u = anc.startExp+1; u < anc.endExp; u++){
-                        expanded_graph_adj_list[u].clear();
-                        color[u].clear();
-                    }
+    //     for (auto& anc : vec)
+    //     {
+    //         // remove chain if possible
+    //         if(anc.startExp != anc.endExp){
+    //             bool simple = true;
+    //             for(int u = anc.startExp+1; u < anc.endExp; u++){
+    //                 if(expanded_graph_adj_list[u].size() > 1){
+    //                     simple = false;
+    //                 }
+    //             }
+    //             if(simple){
+    //                 auto& nbrs = expanded_graph_adj_list[anc.startExp];
+    //                 int v = anc.startExp+1; 
+    //                 nbrs.erase( std::remove_if(nbrs.begin(), nbrs.end(),
+    //                         [v](const std::pair<int,int>& p) {
+    //                             return p.first == v;   // keep only p.first ≠ v
+    //                             }), nbrs.end() );
+    //                 for(int u = anc.startExp+1; u < anc.endExp; u++){
+    //                     expanded_graph_adj_list[u].clear();
+    //                     color[u].clear();
+    //                 }
 
-                }
-            }
-        }
-    }
+    //             }
+    //         }
+    //     }
+    // }
 
 
     // run our approximation algorithm
@@ -2253,7 +2299,10 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
     
 
     /* compactify and keep the mapping */
+    std::cout << "Compactifying..." << std::endl;
     sink = g.compactify(sink);
+
+    std::cout << "Topologically ordering..." << std::endl;
 
     g.topologically_reorder(sink);
     //g.print();
@@ -2286,17 +2335,13 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
         // DIPLOID CASE
 
         std::vector<bool> color_homo_bv(colours_set.size(), 0);
-        std::vector<bool> color_het_bv(colours_set.size(), 0);
 
         for(const auto& c : colours_set){
             int anchor = color_to_anchor[c];
             if(homo_bv[anchor]){
                 color_homo_bv[c] = 1;
-            }else if(het_bv[anchor]){
-                color_het_bv[c] = 1;
             }
         }
-
 
 
         // count number of weighted edges
@@ -2327,7 +2372,29 @@ void Approximator::approximate(std::vector<std::pair<std::string, std::string>> 
         }
         std::cout << "Average level width = " << sum_of_level_widths/(float)g.vertices_in_level.size() << std::endl;
 
-        std::vector<std::tuple<int, int, std::string, std::string>> solutions = diploid_dp_approximation_solver(g, recombination_limit, color_homo_bv, color_het_bv);
+        // on each level l, if a color appears on hap h, 
+        // make sure it appears for all vertices on in hap h on that level
+        std::cout << "Copying het colors across hap vertices on level..." << std::endl;
+        
+        int lev = 0;
+        for(auto l : g.vertices_in_level){
+            std::cout << "\rlevel: " << lev++;
+            for(auto v : l){
+                for(auto c : g.color[v]){
+                    if(!homo_bv[c]){
+                        for(auto u : l){
+                            if(g.haplotype[u] == g.haplotype[v]){
+                                g.color[v].push_back(c);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        std::cout << std::endl;
+
+
+        std::vector<std::tuple<int, int, std::string, std::string>> solutions = diploid_dp_approximation_solver(g, recombination_limit, color_homo_bv);
         
         for(const auto& [r1, r2, s1, s2] : solutions){
             std::cout << r1 << ", " << r2 << ", " << s1.length() << ", " << s2.length() << std::endl;

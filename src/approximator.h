@@ -88,6 +88,6 @@ class Approximator {
         std::set<uint64_t> compute_hashes(std::string &read_seq);
         std::vector<std::vector<std::vector<int32_t>>> compute_anchors(std::vector<std::pair<uint64_t, Anchor>> &minimizers, std::map<uint64_t, int32_t> &read_hashes);
         std::vector<int> dp_approximation_solver(Graph g, int R);
-        std::vector<std::tuple<int, int, std::string, std::string>> diploid_dp_approximation_solver(Graph g, int R, std::vector<bool> color_homo_bv, std::vector<bool> color_het_bv);
+        std::vector<std::tuple<int, int, std::string, std::string>> diploid_dp_approximation_solver(Graph g, int R, std::vector<bool> color_homo_bv);
         std::vector<uint64_t> compute_minimizer_hits(std::vector<uint64_t> &minimizers, std::map<uint64_t, int32_t> &read_hashes);
 };
