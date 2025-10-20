@@ -12,7 +12,7 @@ OBJS = $(src_dir)/main.o $(src_dir)/gfa-io.o $(src_dir)/gfa-base.o \
 		$(src_dir)/options.o $(src_dir)/kalloc.o \
 		$(src_dir)/sys.o $(src_dir)/ILP_index.o \
 		$(src_dir)/approximator.o $(src_dir)/MurmurHash3.o \
-		$(src_dir)/misc.o
+		$(src_dir)/misc.o $(src_dir)/solver.o
 
 PHI2: $(OBJS)
 	$(CXX) $^ -o $@ $(INCLUDES) $(LIBS) $(CXXFLAGS)

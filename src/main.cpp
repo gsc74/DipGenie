@@ -161,7 +161,9 @@ int main(int argc, char *argv[]) {
             return 0;
         }
         approximator_handle->read_ip_reads(ip_reads, reads);
-        approximator_handle->approximate(ip_reads, diploid);
+        approximator_handle->compute_and_classify_anchors(ip_reads);
+        approximator_handle->solve(ip_reads, diploid);
+
     }else{
         // Index the graph
         ILP_index *ILP_handle = new ILP_index(g);
@@ -178,7 +180,7 @@ int main(int argc, char *argv[]) {
         ILP_handle->window = ipt.w; // window size
         ILP_handle->bucket_bits = 14; // bucket bits
         ILP_handle->max_occ = max_occ; // maximum k-mer occurence
-        ILP_handle->recombination = recombination_penality; // recombination penalty
+        ILP_handle->recombination_penalty = recombination_penality; // recombination penalty
         ILP_handle->max_occ = max_occ; // maximum k-mer occurence
         ILP_handle->is_qclp = is_qclp; // mode QCLP/ILP
         ILP_handle->is_naive_exp = is_naive_exp; // naive mode
@@ -188,9 +190,9 @@ int main(int argc, char *argv[]) {
 
 
         ILP_handle->read_ip_reads(ip_reads, reads); // read the reads from the file
-
+        ILP_handle->compute_and_classify_anchors(ip_reads);
         // execute the ILP function
-        ILP_handle->ILP_function(ip_reads);
+        ILP_handle->solve(ip_reads);
 
     }
 
