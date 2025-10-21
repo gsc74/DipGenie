@@ -20,6 +20,7 @@
 #include "Classifier.hpp"
 #include "Fitter.hpp"
 
+#define HAP_ANGLE_THRESHOLD 5
 
 // Constructor
 Approximator::Approximator(gfa_t *g) : Solver(g) {}
@@ -125,7 +126,7 @@ std::vector<int> Approximator::dp_approximation_solver(ExpandedGraph g, int R) {
         std::cout << "r: " << r << " -> " << r + 1 << ", Δcolors: " << delta
                 << ", angle: " << angle_deg << "°" //<<", ed: " << edit_dist_by_r.at(i)
                 << std::endl;
-        if(angle_deg < 10){
+        if(angle_deg < HAP_ANGLE_THRESHOLD){
             best_r = r;
             break;
         }
