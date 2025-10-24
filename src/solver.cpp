@@ -812,126 +812,76 @@ void Solver::compute_and_classify_anchors(std::vector<std::pair<std::string, std
     S_homo.reserve(kmer_count.size());
     S_hetero.reserve(kmer_count.size());
     S_ambiguous.reserve(kmer_count.size());
-    int32_t total_count = 0;
+    // int32_t total_count = 0;
     
     KmerGenieDiploidLike M(res.P);
     // classify a few multiplicities
-    for (int f = 1; f < max_multiplicity; f++) {
-        auto r = M.classify(f);
+    for (int m = 1; m < max_multiplicity; m++) {
+        auto r = M.classify(m);
         const char* L = (r.label==KGPosterior::HET?"HET":(r.label==KGPosterior::HOM?"HOM":"AMB"));
-        if(f <= 30) std::cout << "f="<<f<<"  post[het,hom]=("<<r.p_het<<","<<r.p_hom<<")  "<<L<<"\n";
-        // fill S_homo, S_hetero, S_ambiguous with
-        if (r.label == KGPosterior::HOM) {
-            // rev_kmer_freq
-            for (auto& kmer : rev_kmer_freq[f]) {
-                S_homo.insert(kmer);
-                total_count++;
-            }
-        } else if (r.label == KGPosterior::HET) {
-            for (auto& kmer : rev_kmer_freq[f]) {
-                S_hetero.insert(kmer);
-                total_count++;
-            }
-        } else {
-            for (auto& kmer : rev_kmer_freq[f]) {
-                S_ambiguous.insert(kmer);
-                total_count++;
-            }
-        }
+        if(m <= 20) std::cout << "m="<<m<<"  post[het,hom]=("<<r.p_het<<","<<r.p_hom<<")  "<<L<<"\n";
     }
 
-    // print the fraction of S_homo, S_hetero and S_ambiguous
-    fprintf(stderr, "[M::%s] Classification done. Homozygous: %.2f%%, Heterozygous: %.2f%%, Total kmers: %d\n",
-        __func__,
-        100.0 * S_homo.size() / total_count,
-        100.0 * S_hetero.size() / total_count,
-        total_count);
-
     // before the loop, use plain ints
-    int64_t total_kmers = 0;
     int64_t count_homo  = 0;
     int64_t count_hetero= 0;
-    int64_t count_ambiguous= 0;
-
 
     homo_bv.assign(count_sp_r,0);
-    
-
     Anchor_hits_homo.assign(count_sp_r, std::vector<std::vector<std::vector<int32_t>>>(num_walks));
     Anchor_hits_hetero.assign(count_sp_r, std::vector<std::vector<std::vector<int32_t>>>(num_walks));
     Anchor_hits_ambiguous.assign(count_sp_r, std::vector<std::vector<std::vector<int32_t>>>(num_walks));
 
-    #pragma omp parallel for reduction(+:total_kmers,count_homo,count_hetero,count_ambiguous) num_threads(num_threads)
-    for (int32_t r = 0; r < count_sp_r; ++r) {
-        total_kmers++;
-        auto it = Sp_R_hash.find(r);
-        if (it == Sp_R_hash.end()) continue;
-        uint64_t hash = it->second;
-        bool is_homo = (S_homo.count(hash) != 0);
-        bool is_hetero = (S_hetero.count(hash) != 0);
-        bool is_ambiguous = (S_ambiguous.count(hash) != 0);
+    //#pragma omp parallel for reduction(+:total_kmers,count_homo,count_hetero) num_threads(num_threads)
+    for (int32_t kmer_idx = 0; kmer_idx < Anchor_hits.size(); ++kmer_idx) {
+        auto it = Sp_R_hash.find(kmer_idx);
+        if (it == Sp_R_hash.end()) continue; // shouldn’t happen
 
-        if (is_homo + is_hetero + is_ambiguous == 0 ) continue;
+        uint64_t hash = it->second;
+        int multiplicity = 0;
+        auto kc = kmer_count.find(hash);
+        if (kc != kmer_count.end()) multiplicity = kc->second;
+
+        if (multiplicity == 0) continue; // unseen or filtered; skip
+
+        auto classification = M.classify(multiplicity);
+        bool is_homo = (classification.label == KGPosterior::HOM);
+        bool is_hetero = (classification.label == KGPosterior::HET);
+
+        if (is_homo + is_hetero == 0) {
+            fprintf(stderr, "[M::%s] Error: k-mer %lu==  is not classified\n",
+                __func__, kmer_idx);
+            exit(1);
+        }
 
         // check only one of is_homo, is_hetero, is_ambiguous is true
-        if (is_homo + is_hetero + is_ambiguous != 1) { // Sanity check
-            fprintf(stderr, "[M::%s] Error: k-mer %lu classified as multiple types\n",
-                __func__, hash);
-            // print multiple classified types as well like, homo, hetero and ambigous
-            fprintf(stderr, "[M::%s] k-mer %lu classified as homo: %d, hetero: %d, ambiguous: %d\n",
-                __func__, hash, is_homo, is_hetero, is_ambiguous);
+        if (is_homo + is_hetero != 1) { // Sanity check
+            fprintf(stderr, "[M::%s] Error: k-mer %lu== classified as multiple types\n",
+                __func__, kmer_idx);
             exit(1);
         }
 
         if(is_homo){
-            homo_bv[r] = 1;
-            count_homo++;
-        }else if (is_hetero){
-            count_hetero++;
-        }else{
-            count_ambiguous++;
-        }
-        for (int32_t h = 0; h < num_walks; ++h) {
-            if (paths[h].empty()) continue; // Just for sanity check
-            auto &hits = Anchor_hits[r][h];
-            if (paths[h].empty() || hits.empty()) continue;
-
-            int n = hits.size();
-            total_kmers  += n;
-            if (is_homo)  count_homo   += n;
-            if (is_hetero)  count_hetero += n;
-            if (is_ambiguous)  count_ambiguous += n;
-
-            #pragma omp critical
-            // if (is_homo) { // don't fill not important
-            //     auto &out = Anchor_hits_homo[r][h];
-            //     out.insert(out.end(), hits.begin(), hits.end());
-            // } else {
-            //     auto &out = Anchor_hits_hetero[r][h];
-            //     out.insert(out.end(), hits.begin(), hits.end());
-            // }
-
-            if (is_homo) {
-                auto &out = Anchor_hits_homo[r][h];
-                out.insert(out.end(), hits.begin(), hits.end());
-            } else if (is_hetero) {
-                auto &out = Anchor_hits_hetero[r][h];
-                out.insert(out.end(), hits.begin(), hits.end());
-            } else if (is_ambiguous) {
-                auto &out = Anchor_hits_ambiguous[r][h];
-                out.insert(out.end(), hits.begin(), hits.end());
+            homo_bv[kmer_idx] = 1;
+            for(int h = 0; h < num_walks; h++){
+                auto &out = Anchor_hits_homo[kmer_idx][h];
+                out.insert(out.end(), Anchor_hits[kmer_idx][h].begin(), Anchor_hits[kmer_idx][h].end());
             }
+            count_homo++;
+        }else{
+            for(int h = 0; h < num_walks; h++){
+                auto &out = Anchor_hits_hetero[kmer_idx][h];
+                out.insert(out.end(), Anchor_hits[kmer_idx][h].begin(), Anchor_hits[kmer_idx][h].end());
+            }
+            count_hetero++;
         }
 
     }
 
-    // now you can compute your fractions just as before
-    float frac_h  = float(count_homo)   / std::max<int64_t>(1, total_kmers);
-    float frac_he = float(count_hetero) / std::max<int64_t>(1, total_kmers);
+    float frac_h  = float(count_homo)   / std::max<int64_t>(1, count_homo+count_hetero);
+    float frac_he = float(count_hetero) / std::max<int64_t>(1, count_homo+count_hetero);
     fprintf(stderr,
         "[M::%s] Phasing done. Homozygous: %.2f%%, Heterozygous: %.2f%%, Total kmers: %lld\n",
-        __func__, frac_h*100, frac_he*100, total_kmers);
+        __func__, frac_h*100, frac_he*100, count_homo+count_hetero);
 
-    // clear Anchor_hits_homo[][h]
 }
 

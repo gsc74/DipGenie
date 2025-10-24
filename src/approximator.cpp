@@ -1062,31 +1062,75 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
     // }
 
     // compute best r
-    int best_r = 0;
-    double max_delta = 0;
-    for (size_t r = 1; r + 1 < obj_by_r.size(); ++r) {
-        std::cout << "r: " << r << " true score: " << obj_by_r[r] << std::endl;
-        int delta = obj_by_r[r + 1] - obj_by_r[r];
-        if (std::abs(delta) > max_delta) max_delta = std::abs(delta);
-    }
 
-    bool done = 0;
-    for (size_t r = 1; r + 1 < obj_by_r.size(); ++r) {
-        int delta = obj_by_r[r + 1] - obj_by_r[r];
-        double angle_rad = std::atan(static_cast<double>(delta) / max_delta);
-        double angle_deg = angle_rad * 180.0 / M_PI;
-        std::cout << "r: " << r << " -> " << r + 1 << ", Δcolors: " << delta
-                << ", angle: " << angle_deg << "°" //<<", ed: " << edit_dist_by_r.at(i)
-                << std::endl;
-        if(angle_deg < HAP_ANGLE_THRESHOLD && !done){
+    int best_obj = -INT_MAX;
+    int best_r = 0;
+    for (size_t r = 0; r + 1 < obj_by_r.size(); ++r) {
+        
+        if (obj_by_r[r] > best_obj) {
             best_r = r;
-            done = 1;
+            best_obj = obj_by_r[r];
         }
     }
-    if(!done){
-        std::cout << "angle kept increasing: setting to largest r" << std::endl;
-        best_r = obj_by_r.size()-1;
-    }
+
+    // BREAKS APPROACH
+
+    // double max_delta = 0;
+    // for (size_t r = 0; r + 1 < obj_by_r.size(); ++r) {
+    //     std::cout << "r: " << r << " true score: " << obj_by_r[r] << std::endl;
+    //     int delta = obj_by_r[r + 1] - obj_by_r[r];
+    //     if (std::abs(delta) > max_delta) max_delta = std::abs(delta);
+    // }
+
+    // int best_obj = -INT_MAX;
+
+    // std::vector<int> potential_breaks;
+
+    // for(int r = 0; r + 1 < obj_by_r.size(); r++){
+    //     int delta = obj_by_r[r + 1] - obj_by_r[r];
+    //     double angle_rad = std::atan(static_cast<double>(delta) / max_delta);
+    //     double angle_deg = angle_rad * 180.0 / M_PI;
+    //     if(angle_deg < HAP_ANGLE_THRESHOLD){
+    //         potential_breaks.push_back(r);
+    //     }
+    // }
+
+    // std::cout << "Potential breaks: ";
+    // for(auto r : potential_breaks){
+    //     std::cout << r << " ";
+    // }
+    // std::cout << std::endl;
+
+    // if(potential_breaks.size() == 0){
+    //     best_r = obj_by_r.size()-1;
+    // }else if (potential_breaks.size() == 1 || potential_breaks[1] > potential_breaks[0]+5)
+    // {
+    //     best_r = potential_breaks[0];
+    // }else{
+    //     best_r = potential_breaks[1];
+    // }
+
+
+
+    // DELTA APPROACH
+    
+    // bool done = 0;
+    // for (size_t r = 1; r + 1 < obj_by_r.size(); ++r) {
+    //     int delta = obj_by_r[r + 1] - obj_by_r[r];
+    //     double angle_rad = std::atan(static_cast<double>(delta) / max_delta);
+    //     double angle_deg = angle_rad * 180.0 / M_PI;
+    //     std::cout << "r: " << r << " -> " << r + 1 << ", Δcolors: " << delta
+    //             << ", angle: " << angle_deg << "°" //<<", ed: " << edit_dist_by_r.at(i)
+    //             << std::endl;
+    //     if(angle_deg < HAP_ANGLE_THRESHOLD && !done){
+    //         best_r = r;
+    //         done = 1;
+    //     }
+    // }
+    // if(!done){
+    //     std::cout << "angle kept increasing: setting to largest r" << std::endl;
+    //     best_r = obj_by_r.size()-1;
+    // }
 
     std::cerr << "Best Recombination count: " << best_r << std::endl;
     auto best_sol = solutions.at(best_r);
