@@ -23,6 +23,7 @@
 
 #define HAP_ANGLE_THRESHOLD 5
 
+
 // Constructor
 Approximator::Approximator(gfa_t *g) : Solver(g) {}
 
@@ -167,7 +168,6 @@ std::vector<int> Approximator::dp_approximation_solver(ExpandedGraph g, int R) {
 }
 
 
-
 template <class T>
 std::size_t intersection_size(const std::set<T>& a, const std::set<T>& b) {
     std::size_t c = 0;
@@ -179,6 +179,7 @@ std::size_t intersection_size(const std::set<T>& a, const std::set<T>& b) {
     }
     return c;                       // |A ∩ B|
 }
+
 
 template <class T>
 std::size_t symdiff_size(const std::set<T>& a, const std::set<T>& b) {
@@ -193,6 +194,7 @@ inline void dedup_inplace(std::vector<T>& v) {
     v.erase(std::unique(v.begin(), v.end()), v.end());
 }
 
+
 template <class T>
 inline std::size_t intersection_size_sorted(const std::vector<T>& a,
                                             const std::vector<T>& b) {
@@ -205,6 +207,7 @@ inline std::size_t intersection_size_sorted(const std::vector<T>& a,
     return c;
 }
 
+
 template <class T>
 inline std::size_t symdiff_size_sorted(const std::vector<T>& a,
                                        const std::vector<T>& b) {
@@ -216,6 +219,7 @@ inline std::size_t symdiff_size_sorted(const std::vector<T>& a,
     }
     return c;
 }
+
 
 template <class T>
 inline std::vector<T> intersection_sorted(const std::vector<T>& a,
@@ -236,6 +240,7 @@ inline std::vector<T> intersection_sorted(const std::vector<T>& a,
     out.shrink_to_fit();
     return out;
 }
+
 
 template <class T>
 inline std::vector<T> symdiff_sorted(const std::vector<T>& a,
@@ -282,6 +287,7 @@ inline int inter_size_union2x2(const std::vector<int>& A, const std::vector<int>
     return cnt;
 }
 
+
 // Count |(E ∪ F) △ (G ∪ H)| without building unions
 inline int symdiff_size_union2x2(const std::vector<int>& E, const std::vector<int>& F,
                                  const std::vector<int>& G, const std::vector<int>& H) {
@@ -316,6 +322,7 @@ static std::string format_hms(double sec) {
     return os.str();
 }
 
+
 static void progress_bar(std::size_t current, std::size_t total,
                          std::chrono::steady_clock::time_point start,
                          std::size_t width = 40)
@@ -343,134 +350,7 @@ static void progress_bar(std::size_t current, std::size_t total,
 }
 
 
-// Prefix sums for O(1) segment regression with x = 0..n-1
-struct _Prefix {
-    std::vector<double> sx, sy, sxx, syy, sxy; // prefix sums
-
-    explicit _Prefix(const std::vector<double>& y) {
-        const int n = (int)y.size();
-        sx.assign(n+1, 0.0);
-        sy.assign(n+1, 0.0);
-        sxx.assign(n+1, 0.0);
-        syy.assign(n+1, 0.0);
-        sxy.assign(n+1, 0.0);
-        for (int i = 0; i < n; ++i) {
-            double x = (double)i;              // r = 0..n-1
-            sx[i+1]  = sx[i]  + x;
-            sy[i+1]  = sy[i]  + y[i];
-            sxx[i+1] = sxx[i] + x*x;
-            syy[i+1] = syy[i] + y[i]*y[i];
-            sxy[i+1] = sxy[i] + x*y[i];
-        }
-    }
-
-    struct Fit { double m, b, sse; };
-
-    // inclusive segment over indices [l..r] (0-based)
-    Fit fit(int l, int r) const {
-        const int n = r - l + 1;
-        const double n_d = (double)n;
-        const double Sx  = sx[r+1]  - sx[l];
-        const double Sy  = sy[r+1]  - sy[l];
-        const double Sxx = sxx[r+1] - sxx[l];
-        const double Syy = syy[r+1] - syy[l];
-        const double Sxy = sxy[r+1] - sxy[l];
-        const double den = n_d * Sxx - Sx * Sx;
-
-        double m = 0.0, b = 0.0;
-        if (std::abs(den) > 1e-12) {
-            m = (n_d * Sxy - Sx * Sy) / den;
-            b = (Sy - m*Sx) / n_d;
-        } else {
-            // degenerate (shouldn't happen with x=0..n-1); fall back to mean-only fit
-            m = 0.0;
-            b = Sy / n_d;
-        }
-        // SSE via moments
-        const double sse = Syy + m*m*Sxx + n_d*b*b + 2.0*m*b*Sx - 2.0*m*Sxy - 2.0*b*Sy;
-        return {m, b, sse};
-    }
-};
-
-/**
- * Find 0-based elbow r using a two-segment linear fit with a single breakpoint.
- *
- * scores                : y-values at r = 0..n-1
- * min_left, min_right   : min points required in left/right segments
- * slope_ratio_thresh    : require |m_right| <= slope_ratio_thresh * |m_left|
- *                         set to +inf to disable plateau constraint
- * flat_slope_eps        : if |global_slope| <= flat_slope_eps, treat as flat (returns 0 by default)
- * fallback_unconstrained: if true and no plateau satisfies the constraint, return best unconstrained k
- *
- * returns std::optional<int>  (0-based r) ; std::nullopt if nothing valid and no fallback.
- */
-int find_elbow_two_segment(
-    const std::vector<double>& scores,
-    int min_left = 3,
-    int min_right = 3,
-    double slope_ratio_thresh = 0.2,
-    double flat_slope_eps = 1e-6,
-    bool fallback_unconstrained = false
-) {
-    const int n = (int)scores.size();
-    if (n < min_left + min_right){
-        std::cout << "Too few obj values to fit" << std::endl; 
-        return 0;
-    }
-    _Prefix P(scores);
-
-    // Early flatness check on the whole series
-    auto all = P.fit(0, n-1);
-    if (std::abs(all.m) <= flat_slope_eps) {
-        std::cout << "slope detected as flat" << std::endl;
-        return 0;  // convention for "flat" series; change if you prefer
-    }
-
-    double best_total = std::numeric_limits<double>::infinity();
-    int best_k = -1;
-
-    // breakpoint k: left = [0..k], right = [k..n-1]   (both inclusive)
-    for (int k = min_left - 1; k <= n - min_right; ++k) {
-        auto L = P.fit(0, k);
-        auto R = P.fit(k, n - 1);
-
-        bool ok = true;
-        if (std::isfinite(slope_ratio_thresh)) {
-            if (std::abs(L.m) < 1e-12) ok = false; // avoid dividing by ~0
-            else ok = (std::abs(R.m) <= slope_ratio_thresh * std::abs(L.m));
-        }
-        if (!ok) continue;
-
-        const double total = L.sse + R.sse;
-        if (total < best_total) {
-            best_total = total;
-            best_k = k;
-        }
-    }
-
-    if (best_k >= 0) return best_k;
-
-    if (fallback_unconstrained) {
-        // choose the k minimizing SSE without the plateau constraint
-        double best_total2 = std::numeric_limits<double>::infinity();
-        int best_k2 = -1;
-        for (int k = min_left - 1; k <= n - min_right; ++k) {
-            auto L = P.fit(0, k);
-            auto R = P.fit(k, n - 1);
-            const double total = L.sse + R.sse;
-            if (total < best_total2) { best_total2 = total; best_k2 = k; }
-        }
-        if (best_k2 >= 0) return best_k2;
-    }
-    std::cout << "Fitting failed to find a knee" << std::endl;
-    return scores.size()-1;
-}
-
-
-
 std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploid_dp_approximation_solver(ExpandedGraph g, int R, std::vector<bool> color_homo_bv, std::vector<std::vector<AnchorRec>> anchorsByHap) {
-    
-    
 
     // Build vertex -> position-in-its-level map once
     const int L = (int)g.vertices_in_level.size();
@@ -545,20 +425,26 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
 
     auto dp_wall_start = clock_::now();
 
-
-
     std::cout << "Running DP" << std::endl;
     auto t0 = std::chrono::steady_clock::now();
 
-
+    int next_progress_pct = 1;  // next threshold to report (in %)
     for (int l = 0; l < L; ++l) {
 
-        // progress bar (timed)
+        // progress bar (timed): update only at 5% increments
         {
             auto _t = clock_::now();
-            if (l % 10 == 0 || l == L-1) {
+
+            // percent complete using integer math (avoids float inaccuracies)
+            const int pct = (int)(((long long)(l + 1) * 100) / L);
+
+            if (l == 1 || pct >= next_progress_pct || l + 1 == L) {
                 progress_bar((std::size_t)l + 1, (std::size_t)L, t0);
+
+                // advance threshold so we only trigger at 5%, 10%, ..., 100%
+                while (next_progress_pct <= pct) next_progress_pct += 1;
             }
+
             prof_progress += std::chrono::duration<double>(clock_::now() - _t).count();
         }
 
@@ -724,7 +610,6 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
             << " relax wins:    " << prof_relax_wins << "\n";
 
 
-
     std::cout << "\nDone with diploid DP, reporting solutions..." << std::endl;
 
     // indexer for back tables at a given level l (r-major, then i, then j)
@@ -737,23 +622,6 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
     };
 
     int k_sink = (int)g.vertices_in_level.back().size(); // should be 1
-
-    // // for debug
-    // Outputting weighted edges, use these and comment out DP above for evaluating different scoring
-    for( int r = 0; r <= R; r++ ) {
-        int start = g.vertices_in_level.at(0).at(0);
-        std::cout << "r = " << r << std::endl;
-        std::cout << "P1 weighted edges: " << std::endl;
-        auto& sink_dp = at3(dp_cur, k_sink, 0, 0, r); // corresponds to single sink vertex
-        for( auto edge : sink_dp.weighted_p1_edges ) {
-            std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
-        }
-
-        std::cout << "P2 weighted edges: " << std::endl;
-        for( auto edge : sink_dp.weighted_p2_edges ) {
-            std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
-        }
-    }
 
 
     // Find the nearest vertex (by number of 0-weight hops) from src whose hap == target_hap.
@@ -784,20 +652,20 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
     };
     std::vector<std::tuple<int, int, std::string, std::string>> solutions;
 
-    std::vector<std::unordered_map<int,int>> p1_color_freq_by_r;
-    std::vector<std::unordered_map<int,int>> p2_color_freq_by_r;
+    std::vector<std::unordered_map<int,int>> p1_color_freq_by_r(recombination_limit+1);
+    std::vector<std::unordered_map<int,int>> p2_color_freq_by_r(recombination_limit+1);
 
-    std::vector<std::vector<int>> p1_color_by_r;
-    std::vector<std::vector<int>> p2_color_by_r;
-    for( int r = 0; r <= R; r++ ) {
+    std::vector<std::vector<int>> p1_color_by_r(recombination_limit+1);
+    std::vector<std::vector<int>> p2_color_by_r(recombination_limit+1);
 
 
-        std::cout << "Computing haplotype paths for r = " << r << std::endl;
-        auto& sink_dp = at3(dp_cur, k_sink, 0, 0, r); // corresponds to single sink vertex
+    int best_r = recombination_limit;
+
+    // compute solution paths
+    {
+        auto& sink_dp = at3(dp_cur, k_sink, 0, 0, best_r); // corresponds to single sink vertex
         int r1 = sink_dp.weighted_p1_edges.size()-1;
         int r2 = sink_dp.weighted_p2_edges.size()-1;
-        std::cerr << "Recombinations in P1: " << r1 << std::endl;
-        std::cerr << "Recombinations in P2: " << r2 << std::endl;
 
         int start_exp = g.vertices_in_level.at(0).at(0);
         int h; 
@@ -808,7 +676,6 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         for(int i = 0; i < sink_dp.weighted_p1_edges.size(); i++){
             auto& edge = sink_dp.weighted_p1_edges.at(i);
 
-            //std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
             if(g.original_vertex[edge.first].size() != 1){
                 std::cout << "P1: Vertex " << edge.first << " in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
                 exit(1);
@@ -826,7 +693,7 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
                     }
                 }
             }
-            
+                
             // go from vertex start to vertex end in paths[h], concatenating vertex labels
             //std::cout << "P1 (string): getting original start vertex: size: " << g.original_vertex.at(start_exp).size() << std::endl;
             int start_org = g.original_vertex.at(start_exp).at(0);
@@ -956,29 +823,22 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         }
 
         solutions.emplace_back(r1, r2, hap_1, hap_2);
-        p1_color_freq_by_r.push_back(p1_color_freq);
-        p2_color_freq_by_r.push_back(p2_color_freq);
-        p1_color_by_r.push_back(p1_colors);
-        p2_color_by_r.push_back(p2_colors);
+        p1_color_freq_by_r.at(best_r) = p1_color_freq;
+        p2_color_freq_by_r.at(best_r) = p2_color_freq;
+        p1_color_by_r.at(best_r) = p1_colors;
+        p2_color_by_r.at(best_r) = p2_colors;
     }
 
-    // Delta score approach
     // computes score and approx cert.
-    std::vector<double> obj_by_r;
-
-    for( int r = 0; r <= R; r++ ) {
-
-        std::cout << "Computing score for r = " << r << std::endl;
-
-        
-        auto& sink_dp = at3(dp_cur, k_sink, 0, 0, r); // corresponds to single sink vertex
+    {
+        auto sink_dp = at3(dp_cur, k_sink, 0, 0, best_r); // corresponds to single sink vertex
 
         int s_het = sink_dp.s_het;
 
         std::vector<int> path_1_homo_colors;
         std::vector<int> path_1_hetero_colors;
 
-        for(auto c : p1_color_by_r[r]){
+        for(auto c : p1_color_by_r[best_r]){
             if(color_homo_bv[c]){
                 path_1_homo_colors.push_back(c);
             }else{
@@ -989,7 +849,7 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         std::vector<int> path_2_homo_colors;
         std::vector<int> path_2_hetero_colors;
 
-        for(auto c : p2_color_by_r[r]){
+        for(auto c : p2_color_by_r[best_r]){
             if(color_homo_bv[c]){
                 path_2_homo_colors.push_back(c);
             }else{
@@ -1002,7 +862,7 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         dedup_inplace(path_1_hetero_colors);
         dedup_inplace(path_2_homo_colors);
         dedup_inplace(path_2_hetero_colors);
-    
+
         auto intersection = intersection_sorted(path_1_homo_colors, path_2_homo_colors);
         auto symdif = symdiff_sorted(path_1_hetero_colors, path_2_hetero_colors);
         int intersection_count = intersection.size();
@@ -1010,8 +870,8 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
 
         int m_G_hom = 0;
         int m_G_het = 0;
-        auto p1_color_freq = p1_color_freq_by_r[r];
-        auto p2_color_freq = p2_color_freq_by_r[r];
+        auto p1_color_freq = p1_color_freq_by_r[best_r];
+        auto p2_color_freq = p2_color_freq_by_r[best_r];
 
         for(auto c : intersection){
             auto it1 = p1_color_freq.find(c);
@@ -1039,126 +899,20 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         float additive_term = loss_het / (float)m_G_het_avg;
 
         int obj = intersection_count + symdiff_count;
-        std::cout << "r: " << r << " obj: " << obj << std::endl;
-        obj_by_r.push_back(obj);
+        std::cout << "r: " << best_r << " obj: " << obj << std::endl;
 
         float opt_obj_upper_bound =  m_bar*(obj + additive_term);
 
-
         std::cout << "Approximation certificate: multiplicative factor: " << opt_obj_upper_bound/(float)obj  << std::endl;    
-
     }
 
-    //int best_r = find_elbow_two_segment(obj_by_r, /*min_left=*/3, /*min_right=*/2, /*slope_ratio=*/0.2,/*fallback_unconstrained=*/true);
-    
-    // int best_r = 0;
-    // for (size_t r = 0; r + 1 < obj_by_r.size(); ++r) {
-    //     int delta = obj_by_r[r + 1] - obj_by_r[r];
-    //     std::cout << "r: " << r << " -> " << r + 1 << ", Δobj: " << delta << std::endl;
-    //     if(delta <= 10){
-    //         best_r = r;
-    //         break;
-    //     }
-    // }
-
-    // compute best r
-
-    int best_obj = -INT_MAX;
-    int best_r = 0;
-    for (size_t r = 0; r + 1 < obj_by_r.size(); ++r) {
-        
-        if (obj_by_r[r] > best_obj) {
-            best_r = r;
-            best_obj = obj_by_r[r];
-        }
-    }
-
-    // BREAKS APPROACH
-
-    // double max_delta = 0;
-    // for (size_t r = 0; r + 1 < obj_by_r.size(); ++r) {
-    //     std::cout << "r: " << r << " true score: " << obj_by_r[r] << std::endl;
-    //     int delta = obj_by_r[r + 1] - obj_by_r[r];
-    //     if (std::abs(delta) > max_delta) max_delta = std::abs(delta);
-    // }
-
-    // int best_obj = -INT_MAX;
-
-    // std::vector<int> potential_breaks;
-
-    // for(int r = 0; r + 1 < obj_by_r.size(); r++){
-    //     int delta = obj_by_r[r + 1] - obj_by_r[r];
-    //     double angle_rad = std::atan(static_cast<double>(delta) / max_delta);
-    //     double angle_deg = angle_rad * 180.0 / M_PI;
-    //     if(angle_deg < HAP_ANGLE_THRESHOLD){
-    //         potential_breaks.push_back(r);
-    //     }
-    // }
-
-    // std::cout << "Potential breaks: ";
-    // for(auto r : potential_breaks){
-    //     std::cout << r << " ";
-    // }
-    // std::cout << std::endl;
-
-    // if(potential_breaks.size() == 0){
-    //     best_r = obj_by_r.size()-1;
-    // }else if (potential_breaks.size() == 1 || potential_breaks[1] > potential_breaks[0]+5)
-    // {
-    //     best_r = potential_breaks[0];
-    // }else{
-    //     best_r = potential_breaks[1];
-    // }
-
-
-
-    // DELTA APPROACH
-    
-    // bool done = 0;
-    // for (size_t r = 1; r + 1 < obj_by_r.size(); ++r) {
-    //     int delta = obj_by_r[r + 1] - obj_by_r[r];
-    //     double angle_rad = std::atan(static_cast<double>(delta) / max_delta);
-    //     double angle_deg = angle_rad * 180.0 / M_PI;
-    //     std::cout << "r: " << r << " -> " << r + 1 << ", Δcolors: " << delta
-    //             << ", angle: " << angle_deg << "°" //<<", ed: " << edit_dist_by_r.at(i)
-    //             << std::endl;
-    //     if(angle_deg < HAP_ANGLE_THRESHOLD && !done){
-    //         best_r = r;
-    //         done = 1;
-    //     }
-    // }
-    // if(!done){
-    //     std::cout << "angle kept increasing: setting to largest r" << std::endl;
-    //     best_r = obj_by_r.size()-1;
-    // }
-
-    std::cerr << "Best Recombination count: " << best_r << std::endl;
-    auto best_sol = solutions.at(best_r);
-    solutions.clear();
-    solutions.push_back(best_sol);
 
     return solutions;
-
 }
-
 
 
 void Approximator::solve(std::vector<std::pair<std::string, std::string>> &full_ip_reads, bool diploid)
 {
-    // View anchors for debug
-
-    // for(int r = 0; r < Anchor_hits.size(); r++){
-    //     std::cout << "\n\nr (color): " << r << std::endl;
-    //     for(int h = 0; h < Anchor_hits[r].size(); h++){
-    //         std::cout << "\th (haplotype path): " << h << std::endl;
-    //         for(int _ = 0; _ < Anchor_hits[r][h].size(); _++){
-    //             std::cout << "\t\toccurrence: " << _ << std::endl;
-    //             for(int u = 0; u < Anchor_hits[r][h][_].size(); u++){
-    //                 std::cout << "\t\t\t" << Anchor_hits[r][h][_][u] << std::endl;
-    //             }
-    //         }
-    //     }
-    // }
 
     // build expanded graph representation - weighted edges
     int32_t number_of_vertices = 0;
@@ -1193,20 +947,6 @@ void Approximator::solve(std::vector<std::pair<std::string, std::string>> &full_
             }
         }
     }
-
-    // for(int u = 0; u < expanded_graph_adj_list.size(); u++){
-    //     std::cout << "\n" << u << ": ";
-    //     for(auto v_w : expanded_graph_adj_list[u]){
-    //         std::cout << " (" << u << ", " << v_w.first << ", " << v_w.second << ") ";
-    //     }
-    // }
-    // std::cout << "\nvertex map" <<std::endl;
-    // for(int u; u < vertex_to_expanded_map.size(); u++){
-    //     std::cout <<"\n" << u << ": ";
-    //     for(auto v : vertex_to_expanded_map[u]){
-    //         std::cout  << v << ", ";
-    //     }
-    // }
 
     // construct recombination edges
     std::vector<std::vector<int>> vertex_w_uv (n_vtx);
@@ -1259,65 +999,14 @@ void Approximator::solve(std::vector<std::pair<std::string, std::string>> &full_
         vec.erase(std::unique(vec.begin(), vec.end()),
                 vec.end());                       // ❷ shrink – remove dups
     }
-    //std::cout << "Number of recombination edges: " << recombination_edge_count << std::endl;
-    // std::cout << "Recombination vertex" << std::endl;
-    // for(int h =0; h < recombination_vertex.size(); h++){
-    //     std::cout << h << ": " << "count: " << recombination_vertex[h].size() << " / " << paths[h].size() << ": ";
-    //     // for(auto v : recombination_vertex[h]){
-    //     //     std::cout << " " << v;
-    //     // }
-    //     std::cout << std::endl;
-    // }
-    // for(int u = 0; u < expanded_graph_adj_list.size(); u++){
-    //     std::cout << "\n" << u << ": ";
-    //     for(auto v_w : expanded_graph_adj_list[u]){
-    //         std::cout << " (" << u << ", " << v_w.first << ", " << v_w.second << ") ";
-    //     }
-    // }
-    // std::cout << std::endl;
 
-    //create expanded graph hit paths
-    
-    // // For DEBUG
-    // std::vector<std::vector<std::vector<std::vector<int32_t>>>> Anchor_hits_test(5, std::vector<std::vector<std::vector<int32_t>>>(num_walks));
-    // Anchor_hits_test[0][0].resize(2);
-    // Anchor_hits_test[0][0][0] = {1,3,6};
-    // Anchor_hits_test[0][0][1] = {3,6};
-
-    // Anchor_hits_test[0][1].resize(1);
-    // Anchor_hits_test[0][1][0] = {1,3,5};
-
-    // Anchor_hits_test[1][2].resize(1);
-    // Anchor_hits_test[1][2][0] = {0,2};
-
-    // Anchor_hits_test[1][3].resize(1);
-    // Anchor_hits_test[1][3][0] = {0,2};
-
-    // Anchor_hits_test[2][2].resize(1);
-    // Anchor_hits_test[2][2][0] = {6};
-
-    // Anchor_hits_test[3][1].resize(1);
-    // Anchor_hits_test[3][1][0] = {5,6};
-
-    // Anchor_hits_test[3][4].resize(2);
-    // Anchor_hits_test[3][4][0] = {3};
-    // Anchor_hits_test[3][4][1] = {2};
-
-    // Anchor_hits_test[4][4].resize(1);
-    // Anchor_hits_test[4][4][0] = {4,6};
-
-    //Anchor_hits = Anchor_hits_test;
-
-
-
-        /* ----------------------------------------------------------------
+    /* ----------------------------------------------------------------
     * helper: push one (u→v,0) edge
     * ---------------------------------------------------------------- */
     auto addZeroEdge = [&](int u, int v)
     {
         expanded_graph_adj_list[u].push_back({v, 0});
     };
-
 
     /* ----------------------------------------------------------------
     * 1.  create a vector<AnchorRec> *per haplotype*
@@ -1395,13 +1084,6 @@ void Approximator::solve(std::vector<std::pair<std::string, std::string>> &full_
             }
         }
     }
-    std::cout << "Total color count: " << colours_set.size() << std::endl;
-    auto it = std::max_element(colours_set.begin(), colours_set.end());
-    if (it != colours_set.end()) {
-        int max_color_val = *it;
-        // use max_val
-        std::cout << "Max color value: " << max_color_val << std::endl;
-    }
 
     /* ----------------------------------------------------------------
     * 2.  sweep each haplotype to
@@ -1429,11 +1111,7 @@ void Approximator::solve(std::vector<std::pair<std::string, std::string>> &full_
 
         for (auto& anc : vec)
         {
-            //std::cout << "anchor: " << anc.startExp << " - " << anc.endExp << " colors:";
-            // for(auto c : anc.colours){
-            //     std::cout << " " << c;
-            // }
-            // std::cout << std::endl;
+
             /* ---------- pop anchors that ended before ‘anc’ starts ---------- */
             while (!stk.empty() && stk.back()->endExp < anc.startExp)
                 stk.pop_back();
@@ -1467,42 +1145,6 @@ void Approximator::solve(std::vector<std::pair<std::string, std::string>> &full_
         }
     }
 
-    // //remove shunted simple chains (currently just removes shunted sigle edges)
-    // // for haplotype path finding this is not needed
-    // for (int h = 0; h < paths.size(); ++h)
-    // {
-    //     //std::cout << "haplotype: " << h << std::endl;
-    //     auto& vec = anchorsByHap[h];
-    //     if (vec.empty()) continue;
-
-    //     for (auto& anc : vec)
-    //     {
-    //         // remove chain if possible
-    //         if(anc.startExp != anc.endExp){
-    //             bool simple = true;
-    //             for(int u = anc.startExp+1; u < anc.endExp; u++){
-    //                 if(expanded_graph_adj_list[u].size() > 0){ //only removes single edge shunts
-    //                     simple = false;
-    //                 }
-    //             }
-    //             if(simple){
-    //                 auto& nbrs = expanded_graph_adj_list[anc.startExp];
-    //                 int v = anc.startExp+1; 
-    //                 nbrs.erase( std::remove_if(nbrs.begin(), nbrs.end(),
-    //                         [v](const std::pair<int,int>& p) {
-    //                             return p.first == v;   // keep only p.first ≠ v
-    //                             }), nbrs.end() );
-    //                 for(int u = anc.startExp+1; u < anc.endExp; u++){
-    //                     expanded_graph_adj_list[u].clear();
-    //                     color[u].clear();
-    //                 }
-
-    //             }
-    //         }
-    //     }
-    // }
-
-
     // run our approximation algorithm
     ExpandedGraph g;
     g.adj_list = expanded_graph_adj_list;
@@ -1511,15 +1153,7 @@ void Approximator::solve(std::vector<std::pair<std::string, std::string>> &full_
     g.haplotype = vertex_to_haplotype_map;  
     
 
-    /* compactify and keep the mapping */
-    //std::cout << "Compactifying..." << std::endl;
-    //sink = g.compactify(sink);
-
-    std::cout << "Topologically ordering..." << std::endl;
-
     g.topologically_reorder(sink);
-    //g.print();
-    std::cout << "Topologically reordered" << std::endl;
 
 
     // DP approximation approach
@@ -1543,7 +1177,6 @@ void Approximator::solve(std::vector<std::pair<std::string, std::string>> &full_
         dp_file_stream.close();
 
 
-
     }else{
         // DIPLOID CASE
 
@@ -1556,7 +1189,6 @@ void Approximator::solve(std::vector<std::pair<std::string, std::string>> &full_
             }
         }
 
-
         // count number of weighted edges
         int weighted_edge_count = 0;
         for(int i = 0; i < g.adj_list.size(); i++){
@@ -1567,103 +1199,16 @@ void Approximator::solve(std::vector<std::pair<std::string, std::string>> &full_
             }
         }
 
-        std::cout << "Number of weighted (recombination) edges: " << weighted_edge_count << std::endl;
-
-        // Exact (ILP) diploid solution under the same budget:
-        //auto [opt_r1, opt_r2, opt_s1, opt_s2] = optimal_diploid_solver(g, recombination_limit, color_homo_bv, color_het_bv);
-
-        std::cout << "Leveling" << std::endl;
         int width = g.strict_bfs_levelize_and_reorder();
-        //g.print();
-        std::cout << "number of levels = " << g.vertices_in_level.size() << std::endl;
-        std::cout << "max level width = " << width << std::endl;
-
-        int sum_of_level_widths = 0;
-        for(auto l : g.vertices_in_level){
-            sum_of_level_widths += l.size();
-        }
-        std::cout << "Average level width = " << sum_of_level_widths/(float)g.vertices_in_level.size() << std::endl;
-
-        // // on each level l, if a color appears on hap h, 
-        // // make sure it appears for all vertices on in hap h on that level
-        // std::cout << "Copying het colors across hap vertices on level..." << std::endl;
-        
-        // for (const auto& level : g.vertices_in_level) {
-        //     static int lev = 0;
-        //     std::cout << "\rlevel: " << lev++;
-
-        //     const size_t m = level.size();
-        //     if (m == 0) continue;
-
-        //     // 1) Snapshot filtered colors for this level so we don't chain-add in the same pass.
-        //     std::vector<std::vector<int>> snap(m);
-        //     for (size_t i = 0; i < m; ++i) {
-        //         int u = level[i];
-        //         const auto& cu = g.color[u];
-        //         snap[i].reserve(cu.size());
-        //         for (int c : cu) {
-        //             if (c < 0 || c >= (int)homo_bv.size()) continue; // guard
-        //             if (!homo_bv[c]) snap[i].push_back(c);
-        //         }
-        //         // (optional) dedup snapshot row
-        //         std::sort(snap[i].begin(), snap[i].end());
-        //         snap[i].erase(std::unique(snap[i].begin(), snap[i].end()), snap[i].end());
-        //     }
-
-        //     // 2) Compute additions per vertex (based only on the snapshot).
-        //     std::vector<std::vector<int>> to_add(m);
-        //     for (size_t ui = 0; ui < m; ++ui) {
-        //         int u = level[ui];
-        //         for (size_t vi = ui + 1; vi < m; ++vi) {
-        //             int v = level[vi];
-        //             if (g.haplotype[u] == g.haplotype[v]) {
-        //                 // add colors of u to v (from snapshot)
-        //                 auto& dst = to_add[vi];
-        //                 const auto& src = snap[ui];
-        //                 dst.insert(dst.end(), src.begin(), src.end());
-        //             }
-        //         }
-        //     }
-
-        //     // 3) Apply additions with dedup against existing g.color[v].
-        //     for (size_t vi = 0; vi < m; ++vi) {
-        //         int v = level[vi];
-        //         auto& add = to_add[vi];
-        //         if (add.empty()) continue;
-
-        //         // dedup the additions themselves
-        //         std::sort(add.begin(), add.end());
-        //         add.erase(std::unique(add.begin(), add.end()), add.end());
-
-        //         // merge into g.color[v] without duplicates
-        //         auto& cv = g.color[v];
-        //         // if cv is unsorted, either sort or use a hash set check:
-        //         // (hash set avoids permanently sorting cv if order matters)
-        //         std::unordered_set<int> present(cv.begin(), cv.end());
-        //         for (int c : add) {
-        //             if (present.insert(c).second) {
-        //                 cv.push_back(c);
-        //             }
-        //         }
-        //     }
-        // }
-        // std::cout << std::endl;
-
 
         std::vector<std::tuple<int, int, std::string, std::string>> solutions = diploid_dp_approximation_solver(g, recombination_limit, color_homo_bv, anchorsByHap);
         
         for(const auto& [r1, r2, s1, s2] : solutions){
-            std::cout << r1 << ", " << r2 << ", " << s1.length() << ", " << s2.length() << std::endl;
+            std::cout << "recombinations in P1: " << r1 << ", recombinations in P2: " << r2 
+                << ", bp of P1: " << s1.length() << ", bp of P2: " << s2.length() << std::endl;
         }
 
         if(solutions.size() == 1){
-            // int best_sol = evaluate_diploid_solution_based_on_kmers(solutions, validation_reads);
-            // std::cout << "Best sol based validation reads:" 
-            //     << " r1 = " << std::get<0>(solutions[best_sol]) 
-            //     << " r2 = " << std::get<1>(solutions[best_sol]) 
-            //     << std::endl;
-
-            // const auto& [r1, r2, s1, s2] = solutions.at(best_sol);
 
             const auto& [r1, r2, s1, s2] = solutions.at(0);
             std::ofstream dp_file_stream(hap_file, std::ios::out);
@@ -1682,5 +1227,6 @@ void Approximator::solve(std::vector<std::pair<std::string, std::string>> &full_
             std::cout << "No solution reported, output file not written." << std::endl;
         }
     }
+    std::cout << "Diploid sequences written to: " << hap_file << std::endl;
 }
 

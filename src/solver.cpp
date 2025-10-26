@@ -754,10 +754,10 @@ void Solver::compute_and_classify_anchors(std::vector<std::pair<std::string, std
         Hist_kmer.push_back({(int)kv.first, (double)kv.second});
     }
 
-    // print first 40 elements from Hist_kmer
-    for (size_t i = 0; i < std::min((size_t)40, Hist_kmer.size()); i++) {
-        fprintf(stderr, "[%d, %.2f]\n", Hist_kmer[i].multiplicity, Hist_kmer[i].freq);
-    }
+    // // print first 40 elements from Hist_kmer
+    // for (size_t i = 0; i < std::min((size_t)40, Hist_kmer.size()); i++) {
+    //     fprintf(stderr, "[%d, %.2f]\n", Hist_kmer[i].multiplicity, Hist_kmer[i].freq);
+    // }
 
     // find max_multiplicity and max_freq
     int max_multiplicity = 0;
@@ -772,7 +772,7 @@ void Solver::compute_and_classify_anchors(std::vector<std::pair<std::string, std
     }
 
     // print max_multiplicity and max_freq
-    fprintf(stderr, "Max Multiplicity: %d, Max Frequency: %.2f\n", max_multiplicity, max_freq);
+    //fprintf(stderr, "Max Multiplicity: %d, Max Frequency: %.2f\n", max_multiplicity, max_freq);
 
     KGFitOptions opt;
     opt.max_copy = 10;
@@ -781,6 +781,7 @@ void Solver::compute_and_classify_anchors(std::vector<std::pair<std::string, std
     opt.fit_error = true;
     opt.fit_varw  = true;
 
+    std::cout << "Classifying kmers..." << std::endl;
     auto res = KGFitterBO::fit(Hist_kmer, opt);
     KmerGenieDiploidLike model(res.P);
 
@@ -815,12 +816,12 @@ void Solver::compute_and_classify_anchors(std::vector<std::pair<std::string, std
     // int32_t total_count = 0;
     
     KmerGenieDiploidLike M(res.P);
-    // classify a few multiplicities
-    for (int m = 1; m < max_multiplicity; m++) {
-        auto r = M.classify(m);
-        const char* L = (r.label==KGPosterior::HET?"HET":(r.label==KGPosterior::HOM?"HOM":"AMB"));
-        if(m <= 20) std::cout << "m="<<m<<"  post[het,hom]=("<<r.p_het<<","<<r.p_hom<<")  "<<L<<"\n";
-    }
+    // classify a few multiplicities for output
+    // for (int m = 1; m < max_multiplicity; m++) {
+    //     auto r = M.classify(m);
+    //     const char* L = (r.label==KGPosterior::HET?"HET":(r.label==KGPosterior::HOM?"HOM":"AMB"));
+    //     if(m <= 20) std::cout << "m="<<m<<"  post[het,hom]=("<<r.p_het<<","<<r.p_hom<<")  "<<L<<"\n";
+    // }
 
     // before the loop, use plain ints
     int64_t count_homo  = 0;
