@@ -37,7 +37,6 @@
 #include <cctype>
 #include <string>
 
-#include "gurobi_c++.h"
 #include "MurmurHash3.h"
 #include "solver.h"
 

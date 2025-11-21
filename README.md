@@ -9,29 +9,20 @@
 
 ### Prerequisites
 
-Before using PHI, please ensure that **Miniforge** is installed: [Miniforge Installation Guide](https://github.com/conda-forge/miniforge). This package installer is used for installing a few dependencies such as VG and samtools. To run PHI, you also need a Gurobi license. You can get a free academic license [here](https://www.gurobi.com/academia/academic-program-and-licenses/). You should download and save `gurobi.lic` file in your home directory.
+Before using DipGenie, please ensure that **Miniforge** is installed: [Miniforge Installation Guide](https://github.com/conda-forge/miniforge). This package installer is used for installing a few dependencies such as VG, BayesOpt and samtools.
 
-## <a name="get_phi"></a>Get PHI
+## <a name="get_phi"></a>Get DipGenie
 
 ```bash
-git clone https://github.com/gsc74/PHI2
-cd PHI2
+git clone https://github.com/gsc74/DipGenie
+cd DipGenie
 # Install dependencies (Miniforge is required)
 ./Installdeps
 export PATH="$(pwd)/extra/bin:$PATH"
 export LD_LIBRARY_PATH="$(pwd)/extra/lib:$LD_LIBRARY_PATH"
 make
 
-# test run 
-./PHI -t32 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o CHM13
-```
-
-#### Adding Binary and Library Paths to `.bashrc`
-To ensure that the `extra/bin` and `extra/lib` directories are automatically loaded for every terminal session, you can export them to your `~/.bashrc`. This will make sure the required binaries and libraries for `PHI2` are available.
-
-```bash
-# Add extra/bin and extra/lib to .bashrc
-echo 'export PATH="$(pwd)/extra/bin:$PATH"' >> ~/.bashrc
-echo 'export LD_LIBRARY_PATH="$(pwd)/extra/lib:$LD_LIBRARY_PATH"' >> ~/.bashrc
-source ~/.bashrc
+# test runs 
+./DipGenie -t32 -p1 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o CHM13 # For haploid
+./DipGenie -t32 -p2 -g test/MHC_4.gfa.gz -r test/HG002.mhc.2x.fq.gz -o HG002 # For diploid
 ```

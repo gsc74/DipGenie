@@ -127,7 +127,7 @@ int main(int argc, char *argv[]) {
     // Read the reads from "-r" file
     std::vector<std::pair<std::string, std::string>> ip_reads; //ip_reads[idx] = (read_id, sequence)
 
-    if(approximator){
+    if(!approximator){
         
         Approximator *approximator_handle = new Approximator(g);
         approximator_handle->read_gfa();
@@ -165,34 +165,36 @@ int main(int argc, char *argv[]) {
         approximator_handle->solve(ip_reads, diploid);
 
     }else{
-        // Index the graph
-        ILP_index *ILP_handle = new ILP_index(g);
-        ILP_handle->read_gfa();
+        #ifdef ILP
+            // Index the graph
+            ILP_index *ILP_handle = new ILP_index(g);
+            ILP_handle->read_gfa();
 
-        // Read params
-        ILP_handle->num_threads = opt.n_threads; // number of threads
-        ILP_handle->hap_file = opt.hap_file; // haplotype file to be written
-        ILP_handle->debug = debug; // debug mode
-        ILP_handle->ploidy = ploidy; // ploidy
-        ILP_handle->is_low_cov = is_low_cov; // low coverage mode
-        ILP_handle->hap_name = hap_name; // haplotype name to be written as id of the haplotype
-        ILP_handle->k_mer = ipt.k; // k-mer size
-        ILP_handle->window = ipt.w; // window size
-        ILP_handle->bucket_bits = 14; // bucket bits
-        ILP_handle->max_occ = max_occ; // maximum k-mer occurence
-        ILP_handle->recombination_penalty = recombination_penality; // recombination penalty
-        ILP_handle->max_occ = max_occ; // maximum k-mer occurence
-        ILP_handle->is_qclp = is_qclp; // mode QCLP/ILP
-        ILP_handle->is_naive_exp = is_naive_exp; // naive mode
-        ILP_handle->threshold = threshold; // threshold for k-mer filtering
-        ILP_handle->is_mixed = is_mixed; // mixed mode
-        ILP_handle->top_k = top_k; // top k haplotypes
+            // Read params
+            ILP_handle->num_threads = opt.n_threads; // number of threads
+            ILP_handle->hap_file = opt.hap_file; // haplotype file to be written
+            ILP_handle->debug = debug; // debug mode
+            ILP_handle->ploidy = ploidy; // ploidy
+            ILP_handle->is_low_cov = is_low_cov; // low coverage mode
+            ILP_handle->hap_name = hap_name; // haplotype name to be written as id of the haplotype
+            ILP_handle->k_mer = ipt.k; // k-mer size
+            ILP_handle->window = ipt.w; // window size
+            ILP_handle->bucket_bits = 14; // bucket bits
+            ILP_handle->max_occ = max_occ; // maximum k-mer occurence
+            ILP_handle->recombination_penalty = recombination_penality; // recombination penalty
+            ILP_handle->max_occ = max_occ; // maximum k-mer occurence
+            ILP_handle->is_qclp = is_qclp; // mode QCLP/ILP
+            ILP_handle->is_naive_exp = is_naive_exp; // naive mode
+            ILP_handle->threshold = threshold; // threshold for k-mer filtering
+            ILP_handle->is_mixed = is_mixed; // mixed mode
+            ILP_handle->top_k = top_k; // top k haplotypes
 
 
-        ILP_handle->read_ip_reads(ip_reads, reads); // read the reads from the file
-        ILP_handle->compute_and_classify_anchors(ip_reads);
-        // execute the ILP function
-        ILP_handle->solve(ip_reads);
+            ILP_handle->read_ip_reads(ip_reads, reads); // read the reads from the file
+            ILP_handle->compute_and_classify_anchors(ip_reads);
+            // execute the ILP function
+            ILP_handle->solve(ip_reads);
+        #endif
 
     }
 

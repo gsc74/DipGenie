@@ -3,6 +3,7 @@
 // Constructor
 ILP_index::ILP_index(gfa_t *g) : Solver(g) {}
 
+#ifdef ILP
 void printQuadraticConstraints(GRBModel& model) {
     GRBQConstr* qconstraints = model.getQConstrs();
     int numQConstraints = model.get(GRB_IntAttr_NumQConstrs);
@@ -1032,3 +1033,4 @@ void ILP_index::solve(std::vector<std::pair<std::string, std::string>> &ip_reads
         fprintf(stderr, "[M::%s::%.3f*%.2f] Haplotype %d of size: %lu written to: %s\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0), h, path_str.size(), hap_file_.c_str());
     }
 }
+#endif

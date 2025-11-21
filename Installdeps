@@ -1,7 +1,7 @@
 #!/usr/bin/bash
 
 source $HOME/.bashrc
-conda create -n PHI -c conda-forge gxx_linux-64=13.2.0 make libstdcxx-ng cmake zlib bzip2 xz lz4 zstd -y
+conda create -n PHI -c conda-forge gxx_linux-64=13.2.0 make libstdcxx-ng cmake zlib bzip2 xz lz4 zstd nlopt -y
 conda activate PHI
 
 rm -rf ../extra
@@ -45,12 +45,17 @@ cp bcftools ../../extra/bin/
 cp -r plugins/* ../../extra/plugins/
 cd ..
 
-wget --no-check-certificate https://packages.gurobi.com/12.0/gurobi12.0.2_linux64.tar.gz
-tar -xvf gurobi12.0.2_linux64.tar.gz
-cd gurobi1202/linux64
-cp lib/* ../../../extra/lib/
-cp include/* ../../../extra/include/
-cd ../../
+#bayesopt
+git clone https://github.com/rmcantin/bayesopt
+cd bayesopt
+mkdir build
+cd build
+cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5  ../
+sed -i '/#include "nlopt-util.h"/a #include <sys/time.h>' ../nlopt2/util/timer.c
+make -j4
+cp -r lib/* ../../lib/
+cp -r ../include/* ../../include/
+cd ../..
 
 # zlib
 wget --no-check-certificate https://zlib.net/current/zlib.tar.gz
@@ -63,13 +68,13 @@ cd ..
 
 cd sdsl-lite
 cd build
-cmake .. && make -j4
+cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 .. && make -j4
 cd ../..
 
 cd libhandlegraph
 mkdir -p build
 cd build
-cmake .. && make -j4 CPPFLAGS="-I../sdsl-lite/include" LDFLAGS="-L../sdsl-lite/build/lib/ -L../sdsl-lite/build/external/libdivsufsort/lib/"
+cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 .. && make -j4 CPPFLAGS="-I../sdsl-lite/include" LDFLAGS="-L../sdsl-lite/build/lib/ -L../sdsl-lite/build/external/libdivsufsort/lib/"
 cd ../..
 
 cd gbwt
