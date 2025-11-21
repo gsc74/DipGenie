@@ -1,5 +1,5 @@
- DipGenie  (A tool for pangenome graph-based phased diploid genome inference),
-   Copyright (C) 2025 Intel Corporation.
+DipGenie (A tool for pangenome graph–based phased diploid genome inference)
+Copyright © 2025 Intel Corporation.
 
 This software constitutes a joint work and the contributions of individual
 authors are subject to different licenses.  Contributions and licenses are
@@ -73,3 +73,5 @@ URL: https://github.com/at-cg/PHI
 The MIT License
 
 Copyright (c) 2024 ATCG (Algorithmic Techniques for Computational Genomics)
+
+Contacts: Ghanshyam Chandra <ghanshyam.chandra@intel.com>; Daniel Gibney <daniel.gibney@utdallas.edu>
