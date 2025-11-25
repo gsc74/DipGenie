@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
 	mg_mapopt_t opt;
 	mg_idxopt_t ipt;
     bool debug = false;
-    int32_t recombination_limit = 10;
+    int32_t recombination_limit = 18;
     int32_t recombination_penality = 100;
     int32_t is_qclp = 1;
     int32_t is_naive_exp = 0;

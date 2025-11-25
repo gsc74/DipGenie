@@ -31,11 +31,11 @@ make
 # For haploid
 ./DipGenie -t32 -p1 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o CHM13
 # For diploid
-./DipGenie -t32 -p2 -g test/MHC_4.gfa.gz -r test/HG002.mhc.2x.fq.gz -o HG002
+./DipGenie -t32 -p2 -R18 -g test/MHC_4.gfa.gz -r test/HG002.mhc.2x.fq.gz -o HG002
 
 # test run with VCF file as input
 ./vcf2gfa.py -v test/MHC_4.vcf.gz -r test/MHC-CHM13.0.fa.gz | bgzip > test/MHC_4_vcf.gfa.gz
-./DipGenie -t32 -p2 -g test/MHC_4_vcf.gfa.gz -r test/HG002.mhc.2x.fq.gz -o HG002
+./DipGenie -t32 -p2 -R18 -g test/MHC_4_vcf.gfa.gz -r test/HG002.mhc.2x.fq.gz -o HG002
 ```
 
 ## <a name="intro"></a>Introduction
