@@ -56,7 +56,7 @@ The following tools were used to compute evaluation metrics:
 - [`whatshap`](https://github.com/whatshap/whatshap) to compute the switch error rate (SER)
 - [`truvari`](https://github.com/ACEnglish/truvari) to compute the F1-score for structural variant calling
 
-SER measures phasing accuracy; lower values indicate better phasing performance. 
+SER measures phasing accuracy; lower values indicate better phasing quality. 
 
 
 ### Switch Error Rate (SER)
