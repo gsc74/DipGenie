@@ -11,6 +11,9 @@ Before starting the process, ensure the following tools and datasets are availab
     - seqkit
     - bcftools (with plugins)
     - gfa2gbwt
+    - agc
+    - whatshap
+    - truvari
 
 Ensure all dependencies are installed or available via conda.
 
@@ -41,6 +44,14 @@ make
 
 # Download the datasets from Zenodo
 wget zenodo_link -O data.zip && unzip data.zip && Unpack_commands
+
+# Download the datasets
+wget https://zenodo.org/api/records/17685087/files-archive -O data.zip
+unzip data.zip
+unzip Graphs.zip -d Graphs
+unzip Truth.zip
+unzip hprc_haps.zip
+unzip Reads.zip -d Reads
 ```
 
 ---
@@ -73,42 +84,37 @@ sh run_VG_batch.sh samples_batch_5.txt
 
 ---
 
-## 5. Evalaute results with whatshap for SER
-
+## 5. Generate truth and test VCFs
 ```bash
+sh gen_VCFs_VG.sh
+sh gen_VCFs_DipGenie.sh
 
+# Optionally generate the ground truth VCFs (Truth VCFs are already provided in datasets)
+sh gen_VCFs_truth.sh
 ```
 
 ---
 
-## 7. Postprocessing
-
-After the runs are completed, extract relevant metrics:
+## 6. Evalaute results
 
 ```bash
-# ILP 
-python3 postprocessing_3_MILP.py 
-
-# ILP (no relaxation)
-python3 postprocessing_3.py 
-
-# IQP 
-python3 postprocessing_2_MIQP.py 
-
-# IQP (no relaxation)
-python3 postprocessing_2.py
-
-# Progressive imputation
-python3 postprocessing_9.py # 13 haps
-python3 postprocessing_10.py # 25 haps
-python3 postprocessing_11.py # 49 haps
-python3 postprocessing_12.py # 7 haps
-python3 postprocessing_13.py # 3 haps
-
-# VG
-python3 postprocessing_VG.py
-
-# PanGenie
-python3 postprocessing_PG.py
+sh get_F1_DipGenie.sh
+sh get_SER_DipGenie.sh
+sh get_F1_VG.sh
+sh get_SER_VG.sh
 ```
+
+## 6. Print results
+
+```bash
+sh print_F1_DipGenie.sh
+sh print_len_DipGenie.sh
+sh print_SER_DipGenie.sh
+sh print_SVs_DipGenie.sh
+sh print_F1_VG.sh
+sh print_len_VG.sh
+sh print_SER_VG.sh
+sh print_SVs_VG.sh
+```
+
 ---
