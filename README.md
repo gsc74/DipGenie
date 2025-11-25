@@ -32,6 +32,10 @@ make
 ./DipGenie -t32 -p1 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o CHM13
 # For diploid
 ./DipGenie -t32 -p2 -g test/MHC_4.gfa.gz -r test/HG002.mhc.2x.fq.gz -o HG002
+
+# test run with VCF file as input
+./vcf2gfa.py -v test/MHC_4.vcf.gz -r test/MHC-CHM13.0.fa.gz | bgzip > test/MHC_4_vcf.gfa.gz
+./DipGenie -t32 -p2 -g test/MHC_4_vcf.gfa.gz -r test/HG002.mhc.2x.fq.gz -o HG002
 ```
 
 ## <a name="intro"></a>Introduction
@@ -63,7 +67,7 @@ SER measures phasing accuracy; lower values indicate better phasing performance.
 
 > SER across different read coverages. DipGenie consistently achieves lower SER compared to VG.
 
-### Structural Variant F1-Score
+### F1-Score for Structural Variant Calling
 
 <p align="center">
   <img src="data/F1.jpg" width="700"/>
