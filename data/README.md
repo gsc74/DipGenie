@@ -42,9 +42,6 @@ make
 # Test diploid inference
 ./DipGenie -t32 -p2 -g test/MHC_4.gfa.gz -r test/HG002.mhc.2x.fq.gz -o HG002
 
-# Download the datasets from Zenodo
-wget zenodo_link -O data.zip && unzip data.zip && Unpack_commands
-
 # Download the datasets
 wget https://zenodo.org/api/records/17685087/files-archive -O data.zip
 unzip data.zip
