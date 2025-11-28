@@ -84,4 +84,4 @@ The scripts to reproduce the results are available [here](data). All datasets us
 
 
 ## <a name="pub"></a>Publications
-- **Ghanshyam Chandra, William T. Doan and Daniel Gibney**. Haplotype-resolved diploid genome inference on pangenome graphs. *bioRxiv*
+- **Ghanshyam Chandra, William T. Doan and Daniel Gibney**. Haplotype-resolved diploid genome inference on pangenome graphs. *bioRxiv* (doi: [10.1101/2025.11.26.690754](https://doi.org/10.1101/2025.11.26.690754))
