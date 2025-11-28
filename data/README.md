@@ -5,7 +5,6 @@
 
 Before starting the process, ensure the following tools and datasets are available:
 
-- **Miniforge**: [Miniforge](https://github.com/conda-forge/miniforge)
 - **Required Tools**:
     - DipGenie
     - seqkit
