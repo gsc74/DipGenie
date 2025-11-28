@@ -25,18 +25,6 @@ Ensure all dependencies are installed or available via conda.
 ```bash
 git clone https://github.com/gsc74/DipGenie
 cd DipGenie
-
-# Set installation root
-export DipGenie_HOME="$(pwd)"
-
-# Install dependencies (Miniforge is required)
-"$DipGenie_HOME"/Installdeps
-
-# Environment setup
-export PATH="$DipGenie_HOME/extra/bin:$PATH"
-export LD_LIBRARY_PATH="$DipGenie_HOME/extra/lib:$LD_LIBRARY_PATH"
-
-# Build
 make
 
 # Test diploid inference
@@ -54,8 +42,6 @@ unzip Reads.zip -d Reads
 ---
 
 ## 3. Running DipGenie
-
-For ILP and IQP, execute the following scripts:
 
 ```bash
 # run for different set of samples
