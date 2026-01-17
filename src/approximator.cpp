@@ -373,6 +373,8 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
     }
 
     struct dp_entry {
+        int pred_i;
+        int pred_j;
         int value;
         int s_het;  // for approximation cert later
 
@@ -613,10 +615,7 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
                                 int r2 = r + wu + wv;
                                 if (r2 > R) { ++idx; continue; }
 
-                                // Compute the flat index once so lock selection is stable.
-                                // Assuming at3 maps to: ((r2*k2 + iu2)*k2 + jv2) or similar.
-                                // If you have your own at3 indexing, make a helper that returns the flat index.
-                                const std::size_t flat = at3_index(k2, iu2, jv2, r2); // <-- implement
+                                const std::size_t flat = at3_index(k2, iu2, jv2, r2); 
 
                                 omp_lock_t &lk = locks[lock_of(flat)];
                                 omp_set_lock(&lk);
@@ -624,12 +623,14 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
                                 auto &dst = dp_next[flat];
 
                                 int cand = src.value + score_deltas[idx];
-                                if (cand > dst.value) {
+                                if (cand > dst.value || (cand == dst.value && i < dst.pred_i) || (cand == dst.value && i == dst.pred_i && j < dst.pred_j)) {
 
                                     dst.value = cand;
                                     dst.s_het = src.s_het + s_hets[idx];
                                     dst.weighted_p1_edges = src.weighted_p1_edges;
                                     dst.weighted_p2_edges = src.weighted_p2_edges;
+                                    dst.pred_i = i;
+                                    dst.pred_j = j;
 
                                     if (wu > 0) dst.weighted_p1_edges.emplace_back(u1, u2);
                                     if (wv > 0) dst.weighted_p2_edges.emplace_back(v1, v2);
@@ -656,7 +657,6 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
             {
                 auto _t = clock_::now();
                 dp_cur.swap(dp_next);
-                prof_swap += std::chrono::duration<double>(clock_::now() - _t).count();
             }
 
             #pragma omp barrier
@@ -714,7 +714,8 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
 
 
     int best_r = recombination_limit;
-
+    auto& sink_dp = at3(dp_cur, k_sink, 0, 0, best_r);
+    std::cout << "DP value: " << sink_dp.value << std::endl;
     // compute solution paths
     {
         auto& sink_dp = at3(dp_cur, k_sink, 0, 0, best_r); // corresponds to single sink vertex
