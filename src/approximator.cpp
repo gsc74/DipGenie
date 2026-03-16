@@ -359,18 +359,641 @@ static inline std::size_t lock_of(std::size_t idx) {
 }
 
 
-std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploid_dp_approximation_solver(ExpandedGraph g, int R, std::vector<bool> color_homo_bv, std::vector<std::vector<AnchorRec>> anchorsByHap) {
+// std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploid_dp_approximation_solver(ExpandedGraph g, int R, std::vector<bool> color_homo_bv, std::vector<std::vector<AnchorRec>> anchorsByHap) {
 
+//     // Build vertex -> position-in-its-level map once
+//     const int L = (int)g.vertices_in_level.size();
+//     std::vector<int> pos_in_level(g.adj_list.size(), -1);
+//     for (int l = 0; l < L; ++l) {
+//         const auto& Lv = g.vertices_in_level[l];
+//         if(l == 0 && Lv.size() > 1){
+//             std::cout << "There is more than one source on level zero!" << std::endl;
+//         }
+//         for (int i = 0; i < (int)Lv.size(); ++i) pos_in_level[ Lv[i] ] = i;
+//     }
+
+//     struct dp_entry {
+//         int pred_i;
+//         int pred_j;
+//         int value;
+//         int s_het;  // for approximation cert later
+
+//         std::vector<std::pair<int, int>> weighted_p1_edges; 
+//         std::vector<std::pair<int, int>> weighted_p2_edges; 
+
+//         dp_entry(int v = 0, int s = 0) : value(v), s_het(0) {}
+//     };
+
+//     // Rolling DP buffers
+//     const int32_t NEG_INF = std::numeric_limits<int32_t>::min() / 4;
+//     std::vector<dp_entry> dp_cur, dp_next;
+
+//     // helper to index flattened (R+1)×k×k
+//     auto at3 = [](std::vector<dp_entry>& buf, int k, int i, int j, int r) -> dp_entry& {
+//         return buf[ ((std::size_t)r * k + i) * k + j ];
+//     };
+
+//     auto at3_index = [](int k, int i, int j, int r) -> int {
+//         return ((std::size_t)r * k + i) * k + j;
+//     };
+
+//     // Build per-vertex sorted, deduped lists for homo/hetero colors
+//     std::cout << "Creating hetro/hom-zygous colors per vertex lists" << std::endl;
+//     std::vector<std::vector<int>> homo_sorted(g.adj_list.size());
+//     std::vector<std::vector<int>> hetero_sorted(g.adj_list.size());
+
+//     auto sort_dedup = [](std::vector<int>& v){
+//         std::sort(v.begin(), v.end());
+//         v.erase(std::unique(v.begin(), v.end()), v.end());
+//     };
+
+//     for (int v = 0; v < (int)g.adj_list.size(); ++v) {
+//         auto& H = homo_sorted[v];
+//         auto& T = hetero_sorted[v];
+//         H.reserve(g.color[v].size());
+//         T.reserve(g.color[v].size());
+//         for (int c : g.color[v]) {
+//             if(color_homo_bv.at(c) == 1){ 
+//                 H.push_back(c);
+//             }else{
+//                 T.push_back(c);
+//             }
+//         }
+//         sort_dedup(H);
+//         sort_dedup(T);
+//     }
+
+//     // ---- DP profiling (lightweight) ---------------------------------
+//     #define ENABLE_DP_PROF 1
+//     using clock_ = std::chrono::steady_clock;
+
+//     double prof_progress = 0.0;
+//     double prof_init_cur = 0.0;
+//     double prof_alloc_next = 0.0;
+//     double prof_scored = 0.0;
+//     double prof_relax = 0.0;
+//     double prof_swap = 0.0;
+
+//     long long prof_score_pairs = 0;   // # of (i,j,u2,v2) pairs per level (score_deltas.size())
+//     long long prof_relax_checks = 0;  // # of relax candidates considered
+//     long long prof_relax_wins = 0;    // # of times we improved dst
+
+//     auto dp_wall_start = clock_::now();
+
+//     std::cout << "Running DP" << std::endl;
+//     auto t0 = std::chrono::steady_clock::now();
+
+//     int next_progress_pct = 1;  // next threshold to report (in %)
+//     std::vector<omp_lock_t> locks(LOCK_STRIPES);
+//     for (auto &lk : locks) omp_init_lock(&lk);
+
+//     std::vector<int> score_deltas;
+//     std::vector<int> s_hets;
+//     std::vector<std::size_t> cnt;
+//     std::vector<std::size_t> base;
+//     #pragma omp parallel num_threads(num_threads)
+//     {
+//         for (int l = 0; l < L; ++l) {
+
+//             // ---------------- progress bar + per-level serial bookkeeping ----------------
+//             #pragma omp single
+//             {
+//                 auto _t = clock_::now();
+//                 const int pct = (int)(((long long)(l + 1) * 100) / L);
+
+//                 if (l == 1 || pct >= next_progress_pct || l + 1 == L) {
+//                     progress_bar((std::size_t)l + 1, (std::size_t)L, t0);
+//                     while (next_progress_pct <= pct) next_progress_pct += 1;
+//                 }
+//                 prof_progress += std::chrono::duration<double>(clock_::now() - _t).count();
+//             }
+
+//             const auto& Lnow  = g.vertices_in_level[l];
+//             const int   k     = (int)Lnow.size();
+
+//             // allocate dp_cur on first iteration (serial)
+//             #pragma omp single
+//             {
+//                 if (l == 0) {
+//                     auto _t = clock_::now();
+//                     const std::size_t sz0 = (std::size_t)(R + 1) * k * k;
+//                     dp_cur.assign(sz0, dp_entry(0));
+//                     prof_init_cur += std::chrono::duration<double>(clock_::now() - _t).count();
+//                 }
+//             }
+
+//             // last level
+//             if (l + 1 >= L) break;
+
+//             const auto& Lnext = g.vertices_in_level[l + 1];
+//             const int   k2    = (int)Lnext.size();
+//             const std::size_t szN = (std::size_t)(R + 1) * k2 * k2;
+
+//             // dp_next resize (serial), then reset (parallel)
+//             #pragma omp single
+//             {
+//                 auto _t = clock_::now();
+//                 dp_next.resize(szN);
+//                 prof_alloc_next += std::chrono::duration<double>(clock_::now() - _t).count();
+//             }
+
+//             //#pragma omp barrier
+
+//             // reset in place (parallel)
+//             #pragma omp for schedule(static)
+//             for (std::size_t t = 0; t < szN; ++t) {
+//                 auto &e = dp_next[t];
+//                 e.value = NEG_INF;
+//                 e.weighted_p1_edges.clear();
+//                 e.weighted_p2_edges.clear();
+//             }
+
+//             //#pragma omp barrier
+
+//             // ---------------- score_deltas precompute ----------------
+//             //
+//             // Your current code "push_back"s in a specific order and then uses a single global idx
+//             // during relaxation. In parallel, that ordering becomes painful.
+//             //
+//             // The simplest parallel-safe refactor is:
+//             //   1) compute counts per (i,j): cnt[i*k + j] = outdeg(u1) * outdeg(v1)
+//             //   2) prefix sum -> base offset per (i,j)
+//             //   3) fill score_deltas[ base + t ] and s_hets[ base + t ] in parallel (no push_back)
+//             //
+
+
+//             #pragma omp single
+//             {
+//                 cnt.assign((std::size_t)k * k, 0);
+//                 base.assign((std::size_t)k * k + 1, 0);
+//             }
+
+//             //#pragma omp barrier
+
+//             // counts per (i,j) (parallel)
+//             #pragma omp for collapse(2) schedule(static)
+//             for (int i = 0; i < k; ++i) {
+//                 for (int j = 0; j < k; ++j) {
+//                     int u1 = Lnow[i], v1 = Lnow[j];
+//                     const std::size_t du = g.adj_list[u1].size();
+//                     const std::size_t dv = g.adj_list[v1].size();
+//                     cnt[(std::size_t)i * k + j] = du * dv;
+//                 }
+//             }
+
+//             //#pragma omp barrier
+
+//             // prefix sum (serial)
+//             #pragma omp single
+//             {
+//                 std::size_t total = 0;
+//                 for (std::size_t p = 0; p < (std::size_t)k * k; ++p) {
+//                     base[p] = total;
+//                     total += cnt[p];
+//                 }
+//                 base[(std::size_t)k * k] = total;
+
+//                 score_deltas.resize(total);
+//                 s_hets.resize(total);
+
+//                 prof_score_pairs += (long long)total;
+//             }
+
+//             //#pragma omp barrier
+
+//             // fill (parallel)
+//             #pragma omp for collapse(2) schedule(static)
+//             for (int i = 0; i < k; ++i) {
+//                 for (int j = 0; j < k; ++j) {
+//                     int u1 = Lnow[i];
+//                     int v1 = Lnow[j];
+
+//                     std::size_t out = base[(std::size_t)i * k + j];
+
+//                     for (const auto& [u2, _wu] : g.adj_list[u1]) {
+//                         // int iu2 = pos_in_level[u2];  // not needed here unless you want bounds checks
+//                         for (const auto& [v2, _wv] : g.adj_list[v1]) {
+//                             int inter = inter_size_union2x2(homo_sorted[u1], homo_sorted[v1],
+//                                                             homo_sorted[u2], homo_sorted[v2]);
+//                             int symd  = symdiff_size_union2x2(hetero_sorted[u1], hetero_sorted[v1],
+//                                                               hetero_sorted[u2], hetero_sorted[v2]);
+//                             s_hets[out] = symd;
+//                             score_deltas[out] = inter + symd;
+//                             ++out;
+//                         }
+//                     }
+//                 }
+//             }
+
+//             //#pragma omp barrier
+
+//             // ---------------- relaxation over r ----------------
+//             //
+//             // Parallelize over (r,i,j). For each (i,j) we know the base offset into score_deltas.
+//             // Updates to dp_next collide, so protect each destination update with a striped lock.
+
+
+//             #pragma omp for collapse(3) schedule(static)
+//             for (int r = 0; r <= R; ++r) {
+//                 for (int i = 0; i < k; ++i) {
+//                     for (int j = 0; j < k; ++j) {
+
+//                         dp_entry& src = at3(dp_cur, k, i, j, r);
+//                         if (src.value == NEG_INF) continue;
+
+//                         int u1 = Lnow[i];
+//                         int v1 = Lnow[j];
+
+//                         std::size_t idx = base[(std::size_t)i * k + j];
+
+//                         for (const auto& [u2, wu] : g.adj_list[u1]) {
+//                             int iu2 = pos_in_level[u2];
+
+//                             for (const auto& [v2, wv] : g.adj_list[v1]) {
+//                                 int jv2 = pos_in_level[v2];
+
+//                                 int r2 = r + wu + wv;
+//                                 if (r2 > R) { ++idx; continue; }
+
+//                                 const std::size_t flat = at3_index(k2, iu2, jv2, r2); 
+
+//                                 omp_lock_t &lk = locks[lock_of(flat)];
+//                                 omp_set_lock(&lk);
+
+//                                 auto &dst = dp_next[flat];
+
+//                                 int cand = src.value + score_deltas[idx];
+//                                 if (cand > dst.value || (cand == dst.value && i < dst.pred_i) || (cand == dst.value && i == dst.pred_i && j < dst.pred_j)) {
+
+//                                     dst.value = cand;
+//                                     dst.s_het = src.s_het + s_hets[idx];
+//                                     dst.weighted_p1_edges = src.weighted_p1_edges;
+//                                     dst.weighted_p2_edges = src.weighted_p2_edges;
+//                                     dst.pred_i = i;
+//                                     dst.pred_j = j;
+
+//                                     if (wu > 0) dst.weighted_p1_edges.emplace_back(u1, u2);
+//                                     if (wv > 0) dst.weighted_p2_edges.emplace_back(v1, v2);
+
+//                                     if (l + 1 == L - 1) {
+//                                         dst.weighted_p1_edges.emplace_back(u1, u2);
+//                                         dst.weighted_p2_edges.emplace_back(v1, v2);
+//                                     }
+//                                 }
+
+//                                 omp_unset_lock(&lk);
+//                                 ++idx;
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+
+//             //#pragma omp barrier
+
+
+//             // ---------------- roll buffers (single) ----------------
+//             #pragma omp single
+//             {
+//                 auto _t = clock_::now();
+//                 dp_cur.swap(dp_next);
+//             }
+
+//             //#pragma omp barrier
+//         } // for l
+//     } // parallel
+
+//     for (auto &lk : locks) omp_destroy_lock(&lk);
+
+
+
+
+//     // indexer for back tables at a given level l (r-major, then i, then j)
+//     auto idx3_level = [&](int l, int i, int j, int r) -> std::size_t {
+//         int k = (int)g.vertices_in_level[l].size();
+//     #ifndef NDEBUG
+//         if ((unsigned)i >= (unsigned)k || (unsigned)j >= (unsigned)k) throw std::out_of_range("i/j");
+//     #endif
+//         return ((std::size_t)r * k + i) * k + j;
+//     };
+
+//     int k_sink = (int)g.vertices_in_level.back().size(); // should be 1
+
+
+//     // Find the nearest vertex (by number of 0-weight hops) from src whose hap == target_hap.
+//     // Returns -1 if none reachable via only 0-weight edges.
+//     auto find_next_zero_hap = [&](int src, int target_hap) -> int {
+//         // If zero hops are allowed and src already matches, return it.
+//         if (g.haplotype.at(src) == target_hap && g.original_vertex.at(src).size() > 0) return src;
+
+//         std::queue<int> q;
+//         std::unordered_set<int> visited;
+//         q.push(src);
+//         visited.insert(src);
+
+//         while (!q.empty()) {
+//             int u = q.front(); q.pop();
+//             for (const auto& [v, w] : g.adj_list[u]) {
+//                 if (w != 0) continue;                 // only follow weight-0 edges
+//                 if (!visited.insert(v).second) continue;
+
+//                 if (g.haplotype.at(v) == target_hap && g.original_vertex.at(v).size() > 0){  // first hit = closest by BFS
+//                     return v;
+//                 }
+
+//                 q.push(v);
+//             }
+//         }
+//         return -1; // not found
+//     };
+//     std::vector<std::tuple<int, int, std::string, std::string>> solutions;
+
+//     std::vector<std::unordered_map<int,int>> p1_color_freq_by_r(recombination_limit+1);
+//     std::vector<std::unordered_map<int,int>> p2_color_freq_by_r(recombination_limit+1);
+
+//     std::vector<std::vector<int>> p1_color_by_r(recombination_limit+1);
+//     std::vector<std::vector<int>> p2_color_by_r(recombination_limit+1);
+
+
+//     int best_r = recombination_limit;
+//     auto& sink_dp = at3(dp_cur, k_sink, 0, 0, best_r);
+//     std::cout << "DP value: " << sink_dp.value << std::endl;
+//     // compute solution paths
+//     {
+//         auto& sink_dp = at3(dp_cur, k_sink, 0, 0, best_r); // corresponds to single sink vertex
+//         int r1 = sink_dp.weighted_p1_edges.size()-1;
+//         int r2 = sink_dp.weighted_p2_edges.size()-1;
+
+//         int start_exp = g.vertices_in_level.at(0).at(0);
+//         int h; 
+
+//         std::unordered_map<int,int> p1_color_freq;
+//         std::vector<int> p1_colors;
+//         std::string hap_1 = "";
+//         for(int i = 0; i < sink_dp.weighted_p1_edges.size(); i++){
+//             auto& edge = sink_dp.weighted_p1_edges.at(i);
+
+//             if(g.original_vertex[edge.first].size() != 1){
+//                 std::cout << "P1: Vertex " << edge.first << " in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
+//                 exit(1);
+//             }
+//             int end_exp = edge.first;
+
+//             //std::cout << "P1 (string): getting h = " << h << std::endl;
+//             h = g.haplotype.at(end_exp);
+
+//             if(start_exp == g.vertices_in_level.at(0).at(0)){
+//                 //std::cout << "P1 (string): obtaining first hap starting vertex" << std::endl;
+//                 for(auto& v: g.vertices_in_level.at(1)){
+//                     if(g.haplotype.at(v) == h ){
+//                         start_exp = v;
+//                     }
+//                 }
+//             }
+                
+//             // go from vertex start to vertex end in paths[h], concatenating vertex labels
+//             //std::cout << "P1 (string): getting original start vertex: size: " << g.original_vertex.at(start_exp).size() << std::endl;
+//             int start_org = g.original_vertex.at(start_exp).at(0);
+//             //std::cout << "P1 (string): getting original end vertex" << std::endl;
+//             int end_org = g.original_vertex.at(end_exp).at(0);
+//             bool activated = false;
+//             for(int i = 0; i < paths[h].size(); i++){
+//                 if(paths[h][i] == start_org){
+//                     activated = true;
+//                 }
+//                 if(activated){
+//                     hap_1 += node_seq[paths[h][i]];
+//                 }
+//                 if(paths[h][i] == end_org){
+//                     activated = false;
+//                     break;
+//                 }
+//             }
+
+//             for(auto a : anchorsByHap[h]){
+//                 if(a.startOrg > start_org && a.endOrg < end_org){
+//                     for(auto c : a.colours){
+//                         if(p1_color_freq.find(c) == p1_color_freq.end()){
+//                             p1_color_freq[c] = 1;
+//                             p1_colors.push_back(c);
+//                         }else{
+//                             p1_color_freq[c] += 1;
+//                         }
+//                     }
+//                 }
+//             }
+
+//             if(g.level.at(edge.second) == L-1){
+//                 //std::cout << "P1 (path recovery): done" << std::endl;
+//                 break;
+//             }
+//             auto& next_edge = sink_dp.weighted_p1_edges.at(i+1);
+//             int next_hap = g.haplotype.at(next_edge.first);
+//             bool found_next = false;
+//             //std::cout << "P1 (string): Finding next starting point" << std::endl;
+
+//             int next_start = find_next_zero_hap(edge.second, next_hap);
+//             if (next_start != -1) {
+//                 start_exp = next_start;
+//                 found_next = true;
+//             } else {
+//                 std::cout << "P1 (path recovery) Could not find next_hap=" << next_hap
+//                         << " from " << edge.second << " via 0-weight edges\n";
+//             }
+//             //std::cout << "P1 (string): Done traversing path for h = " << h << std::endl;
+//         }
+
+//         std::unordered_map<int,int> p2_color_freq;
+//         std::vector<int> p2_colors;
+//         std::string hap_2 = "";
+//         start_exp = g.vertices_in_level.at(0).at(0);
+
+//         for(int i = 0; i < sink_dp.weighted_p2_edges.size(); i++){
+
+//             auto& edge = sink_dp.weighted_p2_edges.at(i);
+//             //std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
+//             if(g.original_vertex[edge.first].size() != 1){
+//                 std::cout << "P2: Vertex "<< edge.first <<" in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
+//                 exit(1);
+//             }
+//             int end_exp = edge.first;
+//             h = g.haplotype.at(end_exp);
+
+//             if(start_exp == g.vertices_in_level.at(0).at(0)){
+//                 for(auto& v: g.vertices_in_level.at(1)){
+//                     if(g.haplotype.at(v) == h){
+//                         start_exp = v;
+//                     }
+//                 }
+//             }
+//             // go from vertex start to vertex end in paths[h], concatenating vertex labels
+//             //std::cout << "P2 (string): getting original start vertex" << std::endl;
+//             int start_org = g.original_vertex.at(start_exp).at(0);
+//             //std::cout << "P2 (string): getting original end vertex" << std::endl;
+//             int end_org = g.original_vertex.at(end_exp).at(0);
+//             bool activated = false;
+//             for(int i = 0; i < paths[h].size(); i++){
+//                 if(paths[h][i] == start_org){
+//                     activated = true;
+//                 }
+//                 if(activated){
+//                     hap_2 += node_seq[paths[h][i]];
+//                 }
+//                 if(paths[h][i] == end_org){
+//                     activated = false;
+//                     break;
+//                 }
+//             }
+
+//             for(auto a : anchorsByHap[h]){
+//                 if(a.startOrg > start_org && a.endOrg < end_org){
+//                     for(auto c : a.colours){
+//                         if(p2_color_freq.find(c) == p2_color_freq.end()){
+//                             p2_color_freq[c] = 1;
+//                             p2_colors.push_back(c);
+//                         }else{
+//                             p2_color_freq[c] += 1;
+//                         }
+//                     }
+//                 }
+//             }
+
+//             if(g.level.at(edge.second) == L-1){
+//                 //std::cout << "P2 (string): done" << std::endl;
+//                 break;
+//             }
+//             auto& next_edge = sink_dp.weighted_p2_edges.at(i+1);
+//             int next_hap = g.haplotype.at(next_edge.first);
+//             bool found_next = false;
+//             //std::cout << "Finding next starting point" << std::endl;
+
+//             int next_start = find_next_zero_hap(edge.second, next_hap);
+//             if (next_start != -1) {
+//                 start_exp = next_start;
+//                 found_next = true;
+//             } else {
+//                 std::cout << "P2 (path recovery) Could not find next_hap=" << next_hap
+//                         << " from " << edge.second << " via 0-weight edges\n";
+//             }
+//             //std::cout << "P2: Done traversing path for h = " << h << std::endl;            
+
+//         }
+
+//         solutions.emplace_back(r1, r2, hap_1, hap_2);
+//         p1_color_freq_by_r.at(best_r) = p1_color_freq;
+//         p2_color_freq_by_r.at(best_r) = p2_color_freq;
+//         p1_color_by_r.at(best_r) = p1_colors;
+//         p2_color_by_r.at(best_r) = p2_colors;
+//     }
+
+//     // computes score and approx cert.
+//     {
+//         auto sink_dp = at3(dp_cur, k_sink, 0, 0, best_r); // corresponds to single sink vertex
+
+//         int s_het = sink_dp.s_het;
+
+//         std::vector<int> path_1_homo_colors;
+//         std::vector<int> path_1_hetero_colors;
+
+//         for(auto c : p1_color_by_r[best_r]){
+//             if(color_homo_bv[c]){
+//                 path_1_homo_colors.push_back(c);
+//             }else{
+//                 path_1_hetero_colors.push_back(c);
+//             }
+//         }
+
+//         std::vector<int> path_2_homo_colors;
+//         std::vector<int> path_2_hetero_colors;
+
+//         for(auto c : p2_color_by_r[best_r]){
+//             if(color_homo_bv[c]){
+//                 path_2_homo_colors.push_back(c);
+//             }else{
+//                 path_2_hetero_colors.push_back(c);
+//             }
+//         }
+
+
+//         dedup_inplace(path_1_homo_colors);
+//         dedup_inplace(path_1_hetero_colors);
+//         dedup_inplace(path_2_homo_colors);
+//         dedup_inplace(path_2_hetero_colors);
+
+//         auto intersection = intersection_sorted(path_1_homo_colors, path_2_homo_colors);
+//         auto symdif = symdiff_sorted(path_1_hetero_colors, path_2_hetero_colors);
+//         int intersection_count = intersection.size();
+//         int symdiff_count = symdif.size();
+
+//         int m_G_hom = 0;
+//         int m_G_het = 0;
+//         auto p1_color_freq = p1_color_freq_by_r[best_r];
+//         auto p2_color_freq = p2_color_freq_by_r[best_r];
+
+//         for(auto c : intersection){
+//             auto it1 = p1_color_freq.find(c);
+//             auto it2 = p2_color_freq.find(c);
+//             int k1 = (it1 == p1_color_freq.end()) ? 0 : it1->second;
+//             int k2 = (it2 == p2_color_freq.end()) ? 0 : it2->second;
+//             m_G_hom += (k1 >= k2 ? k1 : k2);
+//         }
+
+//         for(auto c : symdif){
+//             auto it1 = p1_color_freq.find(c);
+//             auto it2 = p2_color_freq.find(c);
+//             int k1 = (it1 == p1_color_freq.end()) ? 0 : it1->second;
+//             int k2 = (it2 == p2_color_freq.end()) ? 0 : it2->second;
+//             m_G_het += k1 + k2;
+//         }
+
+
+//         // approximation cert.
+//         float m_G_hom_avg = m_G_hom / (float) intersection_count;
+//         float m_G_het_avg = m_G_het / (float) symdiff_count;
+//         float m_bar = std::max(m_G_hom_avg, m_G_het_avg);
+
+//         int loss_het = s_het-m_G_het;
+//         float additive_term = loss_het / (float)m_G_het_avg;
+
+//         int obj = intersection_count + symdiff_count;
+//         std::cout << "r: " << best_r << " obj: " << obj << std::endl;
+
+//         float opt_obj_upper_bound =  m_bar*(obj + additive_term);
+
+//         std::cout << "Approximation certificate: multiplicative factor: " << opt_obj_upper_bound/(float)obj  << std::endl;    
+//     }
+
+
+//     return solutions;
+// }
+
+
+std::vector<std::tuple<int, int, std::string, std::string>>
+Approximator::diploid_dp_approximation_solver(
+    ExpandedGraph g,
+    int R,
+    std::vector<bool> color_homo_bv,
+    std::vector<std::vector<AnchorRec>> anchorsByHap)
+{
     // Build vertex -> position-in-its-level map once
     const int L = (int)g.vertices_in_level.size();
     std::vector<int> pos_in_level(g.adj_list.size(), -1);
     for (int l = 0; l < L; ++l) {
         const auto& Lv = g.vertices_in_level[l];
-        if(l == 0 && Lv.size() > 1){
+        if (l == 0 && Lv.size() > 1) {
             std::cout << "There is more than one source on level zero!" << std::endl;
         }
-        for (int i = 0; i < (int)Lv.size(); ++i) pos_in_level[ Lv[i] ] = i;
+        for (int i = 0; i < (int)Lv.size(); ++i) pos_in_level[Lv[i]] = i;
     }
+
+    struct EdgeNode {
+        int from;
+        int to;
+        EdgeNode* prev;
+
+        EdgeNode(int f = -1, int t = -1, EdgeNode* p = nullptr)
+            : from(f), to(t), prev(p) {}
+    };
 
     struct dp_entry {
         int pred_i;
@@ -378,10 +1001,20 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         int value;
         int s_het;  // for approximation cert later
 
-        std::vector<std::pair<int, int>> weighted_p1_edges; 
-        std::vector<std::pair<int, int>> weighted_p2_edges; 
+        EdgeNode* p1_tail;
+        EdgeNode* p2_tail;
+        int p1_count;
+        int p2_count;
 
-        dp_entry(int v = 0, int s = 0) : value(v), s_het(0) {}
+        dp_entry(int v = 0, int s = 0)
+            : pred_i(std::numeric_limits<int>::max()),
+              pred_j(std::numeric_limits<int>::max()),
+              value(v),
+              s_het(s),
+              p1_tail(nullptr),
+              p2_tail(nullptr),
+              p1_count(0),
+              p2_count(0) {}
     };
 
     // Rolling DP buffers
@@ -390,10 +1023,14 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
 
     // helper to index flattened (R+1)×k×k
     auto at3 = [](std::vector<dp_entry>& buf, int k, int i, int j, int r) -> dp_entry& {
-        return buf[ ((std::size_t)r * k + i) * k + j ];
+        return buf[((std::size_t)r * k + i) * k + j];
     };
 
-    auto at3_index = [](int k, int i, int j, int r) -> int {
+    auto at3_const = [](const std::vector<dp_entry>& buf, int k, int i, int j, int r) -> const dp_entry& {
+        return buf[((std::size_t)r * k + i) * k + j];
+    };
+
+    auto at3_index = [](int k, int i, int j, int r) -> std::size_t {
         return ((std::size_t)r * k + i) * k + j;
     };
 
@@ -402,7 +1039,7 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
     std::vector<std::vector<int>> homo_sorted(g.adj_list.size());
     std::vector<std::vector<int>> hetero_sorted(g.adj_list.size());
 
-    auto sort_dedup = [](std::vector<int>& v){
+    auto sort_dedup = [](std::vector<int>& v) {
         std::sort(v.begin(), v.end());
         v.erase(std::unique(v.begin(), v.end()), v.end());
     };
@@ -413,9 +1050,9 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         H.reserve(g.color[v].size());
         T.reserve(g.color[v].size());
         for (int c : g.color[v]) {
-            if(color_homo_bv.at(c) == 1){ 
+            if (color_homo_bv.at(c) == 1) {
                 H.push_back(c);
-            }else{
+            } else {
                 T.push_back(c);
             }
         }
@@ -423,62 +1060,49 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         sort_dedup(T);
     }
 
-    // ---- DP profiling (lightweight) ---------------------------------
-    #define ENABLE_DP_PROF 1
     using clock_ = std::chrono::steady_clock;
-
-    double prof_progress = 0.0;
-    double prof_init_cur = 0.0;
-    double prof_alloc_next = 0.0;
-    double prof_scored = 0.0;
-    double prof_relax = 0.0;
-    double prof_swap = 0.0;
-
-    long long prof_score_pairs = 0;   // # of (i,j,u2,v2) pairs per level (score_deltas.size())
-    long long prof_relax_checks = 0;  // # of relax candidates considered
-    long long prof_relax_wins = 0;    // # of times we improved dst
-
     auto dp_wall_start = clock_::now();
+    (void)dp_wall_start;
 
     std::cout << "Running DP" << std::endl;
     auto t0 = std::chrono::steady_clock::now();
 
     int next_progress_pct = 1;  // next threshold to report (in %)
     std::vector<omp_lock_t> locks(LOCK_STRIPES);
-    for (auto &lk : locks) omp_init_lock(&lk);
+    for (auto& lk : locks) omp_init_lock(&lk);
 
     std::vector<int> score_deltas;
     std::vector<int> s_hets;
     std::vector<std::size_t> cnt;
     std::vector<std::size_t> base;
+
+    // Per-thread edge pools so node pointers stay valid for the whole function.
+    std::vector<std::deque<EdgeNode>> p1_edge_pools(num_threads);
+    std::vector<std::deque<EdgeNode>> p2_edge_pools(num_threads);
+
     #pragma omp parallel num_threads(num_threads)
     {
         for (int l = 0; l < L; ++l) {
 
-            // ---------------- progress bar + per-level serial bookkeeping ----------------
+            // progress bar + per-level serial bookkeeping
             #pragma omp single
             {
-                auto _t = clock_::now();
                 const int pct = (int)(((long long)(l + 1) * 100) / L);
-
                 if (l == 1 || pct >= next_progress_pct || l + 1 == L) {
                     progress_bar((std::size_t)l + 1, (std::size_t)L, t0);
                     while (next_progress_pct <= pct) next_progress_pct += 1;
                 }
-                prof_progress += std::chrono::duration<double>(clock_::now() - _t).count();
             }
 
-            const auto& Lnow  = g.vertices_in_level[l];
-            const int   k     = (int)Lnow.size();
+            const auto& Lnow = g.vertices_in_level[l];
+            const int k = (int)Lnow.size();
 
-            // allocate dp_cur on first iteration (serial)
+            // allocate dp_cur on first iteration
             #pragma omp single
             {
                 if (l == 0) {
-                    auto _t = clock_::now();
                     const std::size_t sz0 = (std::size_t)(R + 1) * k * k;
-                    dp_cur.assign(sz0, dp_entry(0));
-                    prof_init_cur += std::chrono::duration<double>(clock_::now() - _t).count();
+                    dp_cur.assign(sz0, dp_entry(0, 0));
                 }
             }
 
@@ -486,51 +1110,37 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
             if (l + 1 >= L) break;
 
             const auto& Lnext = g.vertices_in_level[l + 1];
-            const int   k2    = (int)Lnext.size();
+            const int k2 = (int)Lnext.size();
             const std::size_t szN = (std::size_t)(R + 1) * k2 * k2;
 
-            // dp_next resize (serial), then reset (parallel)
+            // dp_next resize
             #pragma omp single
             {
-                auto _t = clock_::now();
                 dp_next.resize(szN);
-                prof_alloc_next += std::chrono::duration<double>(clock_::now() - _t).count();
             }
 
-            #pragma omp barrier
-
-            // reset in place (parallel)
+            // reset in place
             #pragma omp for schedule(static)
             for (std::size_t t = 0; t < szN; ++t) {
-                auto &e = dp_next[t];
+                auto& e = dp_next[t];
                 e.value = NEG_INF;
-                e.weighted_p1_edges.clear();
-                e.weighted_p2_edges.clear();
+                e.s_het = 0;
+                e.pred_i = std::numeric_limits<int>::max();
+                e.pred_j = std::numeric_limits<int>::max();
+                e.p1_tail = nullptr;
+                e.p2_tail = nullptr;
+                e.p1_count = 0;
+                e.p2_count = 0;
             }
 
-            #pragma omp barrier
-
-            // ---------------- score_deltas precompute ----------------
-            //
-            // Your current code "push_back"s in a specific order and then uses a single global idx
-            // during relaxation. In parallel, that ordering becomes painful.
-            //
-            // The simplest parallel-safe refactor is:
-            //   1) compute counts per (i,j): cnt[i*k + j] = outdeg(u1) * outdeg(v1)
-            //   2) prefix sum -> base offset per (i,j)
-            //   3) fill score_deltas[ base + t ] and s_hets[ base + t ] in parallel (no push_back)
-            //
-
-
+            // score_deltas precompute
             #pragma omp single
             {
                 cnt.assign((std::size_t)k * k, 0);
                 base.assign((std::size_t)k * k + 1, 0);
             }
 
-            #pragma omp barrier
-
-            // counts per (i,j) (parallel)
+            // counts per (i,j)
             #pragma omp for collapse(2) schedule(static)
             for (int i = 0; i < k; ++i) {
                 for (int j = 0; j < k; ++j) {
@@ -541,9 +1151,7 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
                 }
             }
 
-            #pragma omp barrier
-
-            // prefix sum (serial)
+            // prefix sum
             #pragma omp single
             {
                 std::size_t total = 0;
@@ -555,13 +1163,9 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
 
                 score_deltas.resize(total);
                 s_hets.resize(total);
-
-                prof_score_pairs += (long long)total;
             }
 
-            #pragma omp barrier
-
-            // fill (parallel)
+            // fill
             #pragma omp for collapse(2) schedule(static)
             for (int i = 0; i < k; ++i) {
                 for (int j = 0; j < k; ++j) {
@@ -571,12 +1175,11 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
                     std::size_t out = base[(std::size_t)i * k + j];
 
                     for (const auto& [u2, _wu] : g.adj_list[u1]) {
-                        // int iu2 = pos_in_level[u2];  // not needed here unless you want bounds checks
                         for (const auto& [v2, _wv] : g.adj_list[v1]) {
                             int inter = inter_size_union2x2(homo_sorted[u1], homo_sorted[v1],
                                                             homo_sorted[u2], homo_sorted[v2]);
-                            int symd  = symdiff_size_union2x2(hetero_sorted[u1], hetero_sorted[v1],
-                                                              hetero_sorted[u2], hetero_sorted[v2]);
+                            int symd = symdiff_size_union2x2(hetero_sorted[u1], hetero_sorted[v1],
+                                                             hetero_sorted[u2], hetero_sorted[v2]);
                             s_hets[out] = symd;
                             score_deltas[out] = inter + symd;
                             ++out;
@@ -585,14 +1188,7 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
                 }
             }
 
-            #pragma omp barrier
-
-            // ---------------- relaxation over r ----------------
-            //
-            // Parallelize over (r,i,j). For each (i,j) we know the base offset into score_deltas.
-            // Updates to dp_next collide, so protect each destination update with a striped lock.
-
-
+            // relaxation over r
             #pragma omp for collapse(3) schedule(static)
             for (int r = 0; r <= R; ++r) {
                 for (int i = 0; i < k; ++i) {
@@ -615,29 +1211,49 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
                                 int r2 = r + wu + wv;
                                 if (r2 > R) { ++idx; continue; }
 
-                                const std::size_t flat = at3_index(k2, iu2, jv2, r2); 
+                                const std::size_t flat = at3_index(k2, iu2, jv2, r2);
 
-                                omp_lock_t &lk = locks[lock_of(flat)];
+                                omp_lock_t& lk = locks[lock_of(flat)];
                                 omp_set_lock(&lk);
 
-                                auto &dst = dp_next[flat];
-
+                                auto& dst = dp_next[flat];
                                 int cand = src.value + score_deltas[idx];
-                                if (cand > dst.value || (cand == dst.value && i < dst.pred_i) || (cand == dst.value && i == dst.pred_i && j < dst.pred_j)) {
+
+                                if (cand > dst.value ||
+                                    (cand == dst.value && i < dst.pred_i) ||
+                                    (cand == dst.value && i == dst.pred_i && j < dst.pred_j)) {
 
                                     dst.value = cand;
                                     dst.s_het = src.s_het + s_hets[idx];
-                                    dst.weighted_p1_edges = src.weighted_p1_edges;
-                                    dst.weighted_p2_edges = src.weighted_p2_edges;
                                     dst.pred_i = i;
                                     dst.pred_j = j;
 
-                                    if (wu > 0) dst.weighted_p1_edges.emplace_back(u1, u2);
-                                    if (wv > 0) dst.weighted_p2_edges.emplace_back(v1, v2);
+                                    dst.p1_tail = src.p1_tail;
+                                    dst.p2_tail = src.p2_tail;
+                                    dst.p1_count = src.p1_count;
+                                    dst.p2_count = src.p2_count;
+
+                                    const int tid = omp_get_thread_num();
+
+                                    if (wu > 0) {
+                                        p1_edge_pools[tid].emplace_back(u1, u2, dst.p1_tail);
+                                        dst.p1_tail = &p1_edge_pools[tid].back();
+                                        ++dst.p1_count;
+                                    }
+                                    if (wv > 0) {
+                                        p2_edge_pools[tid].emplace_back(v1, v2, dst.p2_tail);
+                                        dst.p2_tail = &p2_edge_pools[tid].back();
+                                        ++dst.p2_count;
+                                    }
 
                                     if (l + 1 == L - 1) {
-                                        dst.weighted_p1_edges.emplace_back(u1, u2);
-                                        dst.weighted_p2_edges.emplace_back(v1, v2);
+                                        p1_edge_pools[tid].emplace_back(u1, u2, dst.p1_tail);
+                                        dst.p1_tail = &p1_edge_pools[tid].back();
+                                        ++dst.p1_count;
+
+                                        p2_edge_pools[tid].emplace_back(v1, v2, dst.p2_tail);
+                                        dst.p2_tail = &p2_edge_pools[tid].back();
+                                        ++dst.p2_count;
                                     }
                                 }
 
@@ -649,22 +1265,15 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
                 }
             }
 
-            #pragma omp barrier
-
-
-            // ---------------- roll buffers (single) ----------------
+            // roll buffers
             #pragma omp single
             {
-                auto _t = clock_::now();
                 dp_cur.swap(dp_next);
             }
+        }
+    }
 
-            #pragma omp barrier
-        } // for l
-    } // parallel
-
-    for (auto &lk : locks) omp_destroy_lock(&lk);
-
+    for (auto& lk : locks) omp_destroy_lock(&lk);
 
     // indexer for back tables at a given level l (r-major, then i, then j)
     auto idx3_level = [&](int l, int i, int j, int r) -> std::size_t {
@@ -674,14 +1283,11 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
     #endif
         return ((std::size_t)r * k + i) * k + j;
     };
+    (void)idx3_level;
 
     int k_sink = (int)g.vertices_in_level.back().size(); // should be 1
 
-
-    // Find the nearest vertex (by number of 0-weight hops) from src whose hap == target_hap.
-    // Returns -1 if none reachable via only 0-weight edges.
     auto find_next_zero_hap = [&](int src, int target_hap) -> int {
-        // If zero hops are allowed and src already matches, return it.
         if (g.haplotype.at(src) == target_hap && g.original_vertex.at(src).size() > 0) return src;
 
         std::queue<int> q;
@@ -690,191 +1296,188 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         visited.insert(src);
 
         while (!q.empty()) {
-            int u = q.front(); q.pop();
+            int u = q.front();
+            q.pop();
             for (const auto& [v, w] : g.adj_list[u]) {
-                if (w != 0) continue;                 // only follow weight-0 edges
+                if (w != 0) continue;
                 if (!visited.insert(v).second) continue;
 
-                if (g.haplotype.at(v) == target_hap && g.original_vertex.at(v).size() > 0){  // first hit = closest by BFS
+                if (g.haplotype.at(v) == target_hap && g.original_vertex.at(v).size() > 0) {
                     return v;
                 }
 
                 q.push(v);
             }
         }
-        return -1; // not found
+        return -1;
     };
+
+    auto materialize_edges = [](EdgeNode* tail) -> std::vector<std::pair<int, int>> {
+        std::vector<std::pair<int, int>> out;
+        for (EdgeNode* cur = tail; cur != nullptr; cur = cur->prev) {
+            out.emplace_back(cur->from, cur->to);
+        }
+        std::reverse(out.begin(), out.end());
+        return out;
+    };
+
     std::vector<std::tuple<int, int, std::string, std::string>> solutions;
 
-    std::vector<std::unordered_map<int,int>> p1_color_freq_by_r(recombination_limit+1);
-    std::vector<std::unordered_map<int,int>> p2_color_freq_by_r(recombination_limit+1);
+    std::vector<std::unordered_map<int, int>> p1_color_freq_by_r(recombination_limit + 1);
+    std::vector<std::unordered_map<int, int>> p2_color_freq_by_r(recombination_limit + 1);
 
-    std::vector<std::vector<int>> p1_color_by_r(recombination_limit+1);
-    std::vector<std::vector<int>> p2_color_by_r(recombination_limit+1);
-
+    std::vector<std::vector<int>> p1_color_by_r(recombination_limit + 1);
+    std::vector<std::vector<int>> p2_color_by_r(recombination_limit + 1);
 
     int best_r = recombination_limit;
     auto& sink_dp = at3(dp_cur, k_sink, 0, 0, best_r);
     std::cout << "DP value: " << sink_dp.value << std::endl;
+
     // compute solution paths
     {
-        auto& sink_dp = at3(dp_cur, k_sink, 0, 0, best_r); // corresponds to single sink vertex
-        int r1 = sink_dp.weighted_p1_edges.size()-1;
-        int r2 = sink_dp.weighted_p2_edges.size()-1;
+        const auto& sink_dp_final = at3_const(dp_cur, k_sink, 0, 0, best_r);
+        std::vector<std::pair<int, int>> weighted_p1_edges = materialize_edges(sink_dp_final.p1_tail);
+        std::vector<std::pair<int, int>> weighted_p2_edges = materialize_edges(sink_dp_final.p2_tail);
+
+        int r1 = (int)weighted_p1_edges.size() - 1;
+        int r2 = (int)weighted_p2_edges.size() - 1;
 
         int start_exp = g.vertices_in_level.at(0).at(0);
-        int h; 
+        int h;
 
-        std::unordered_map<int,int> p1_color_freq;
+        std::unordered_map<int, int> p1_color_freq;
         std::vector<int> p1_colors;
         std::string hap_1 = "";
-        for(int i = 0; i < sink_dp.weighted_p1_edges.size(); i++){
-            auto& edge = sink_dp.weighted_p1_edges.at(i);
+        for (int i = 0; i < (int)weighted_p1_edges.size(); i++) {
+            auto& edge = weighted_p1_edges.at(i);
 
-            if(g.original_vertex[edge.first].size() != 1){
-                std::cout << "P1: Vertex " << edge.first << " in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
+            if (g.original_vertex[edge.first].size() != 1) {
+                std::cout << "P1: Vertex " << edge.first << " in map back has "
+                          << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
                 exit(1);
             }
             int end_exp = edge.first;
 
-            //std::cout << "P1 (string): getting h = " << h << std::endl;
             h = g.haplotype.at(end_exp);
 
-            if(start_exp == g.vertices_in_level.at(0).at(0)){
-                //std::cout << "P1 (string): obtaining first hap starting vertex" << std::endl;
-                for(auto& v: g.vertices_in_level.at(1)){
-                    if(g.haplotype.at(v) == h ){
+            if (start_exp == g.vertices_in_level.at(0).at(0)) {
+                for (auto& v : g.vertices_in_level.at(1)) {
+                    if (g.haplotype.at(v) == h) {
                         start_exp = v;
                     }
                 }
             }
-                
-            // go from vertex start to vertex end in paths[h], concatenating vertex labels
-            //std::cout << "P1 (string): getting original start vertex: size: " << g.original_vertex.at(start_exp).size() << std::endl;
+
             int start_org = g.original_vertex.at(start_exp).at(0);
-            //std::cout << "P1 (string): getting original end vertex" << std::endl;
             int end_org = g.original_vertex.at(end_exp).at(0);
             bool activated = false;
-            for(int i = 0; i < paths[h].size(); i++){
-                if(paths[h][i] == start_org){
+            for (int t = 0; t < (int)paths[h].size(); t++) {
+                if (paths[h][t] == start_org) {
                     activated = true;
                 }
-                if(activated){
-                    hap_1 += node_seq[paths[h][i]];
+                if (activated) {
+                    hap_1 += node_seq[paths[h][t]];
                 }
-                if(paths[h][i] == end_org){
+                if (paths[h][t] == end_org) {
                     activated = false;
                     break;
                 }
             }
 
-            for(auto a : anchorsByHap[h]){
-                if(a.startOrg > start_org && a.endOrg < end_org){
-                    for(auto c : a.colours){
-                        if(p1_color_freq.find(c) == p1_color_freq.end()){
+            for (auto a : anchorsByHap[h]) {
+                if (a.startOrg > start_org && a.endOrg < end_org) {
+                    for (auto c : a.colours) {
+                        if (p1_color_freq.find(c) == p1_color_freq.end()) {
                             p1_color_freq[c] = 1;
                             p1_colors.push_back(c);
-                        }else{
+                        } else {
                             p1_color_freq[c] += 1;
                         }
                     }
                 }
             }
 
-            if(g.level.at(edge.second) == L-1){
-                //std::cout << "P1 (path recovery): done" << std::endl;
+            if (g.level.at(edge.second) == L - 1) {
                 break;
             }
-            auto& next_edge = sink_dp.weighted_p1_edges.at(i+1);
+            auto& next_edge = weighted_p1_edges.at(i + 1);
             int next_hap = g.haplotype.at(next_edge.first);
-            bool found_next = false;
-            //std::cout << "P1 (string): Finding next starting point" << std::endl;
 
             int next_start = find_next_zero_hap(edge.second, next_hap);
             if (next_start != -1) {
                 start_exp = next_start;
-                found_next = true;
             } else {
                 std::cout << "P1 (path recovery) Could not find next_hap=" << next_hap
-                        << " from " << edge.second << " via 0-weight edges\n";
+                          << " from " << edge.second << " via 0-weight edges\n";
             }
-            //std::cout << "P1 (string): Done traversing path for h = " << h << std::endl;
         }
 
-        std::unordered_map<int,int> p2_color_freq;
+        std::unordered_map<int, int> p2_color_freq;
         std::vector<int> p2_colors;
         std::string hap_2 = "";
         start_exp = g.vertices_in_level.at(0).at(0);
 
-        for(int i = 0; i < sink_dp.weighted_p2_edges.size(); i++){
+        for (int i = 0; i < (int)weighted_p2_edges.size(); i++) {
+            auto& edge = weighted_p2_edges.at(i);
 
-            auto& edge = sink_dp.weighted_p2_edges.at(i);
-            //std::cout << "(" << edge.first << ", " << edge.second << ")" << std::endl;
-            if(g.original_vertex[edge.first].size() != 1){
-                std::cout << "P2: Vertex "<< edge.first <<" in map back has " << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
+            if (g.original_vertex[edge.first].size() != 1) {
+                std::cout << "P2: Vertex " << edge.first << " in map back has "
+                          << g.original_vertex[edge.first].size() << " original vertices" << std::endl;
                 exit(1);
             }
             int end_exp = edge.first;
             h = g.haplotype.at(end_exp);
 
-            if(start_exp == g.vertices_in_level.at(0).at(0)){
-                for(auto& v: g.vertices_in_level.at(1)){
-                    if(g.haplotype.at(v) == h){
+            if (start_exp == g.vertices_in_level.at(0).at(0)) {
+                for (auto& v : g.vertices_in_level.at(1)) {
+                    if (g.haplotype.at(v) == h) {
                         start_exp = v;
                     }
                 }
             }
-            // go from vertex start to vertex end in paths[h], concatenating vertex labels
-            //std::cout << "P2 (string): getting original start vertex" << std::endl;
+
             int start_org = g.original_vertex.at(start_exp).at(0);
-            //std::cout << "P2 (string): getting original end vertex" << std::endl;
             int end_org = g.original_vertex.at(end_exp).at(0);
             bool activated = false;
-            for(int i = 0; i < paths[h].size(); i++){
-                if(paths[h][i] == start_org){
+            for (int t = 0; t < (int)paths[h].size(); t++) {
+                if (paths[h][t] == start_org) {
                     activated = true;
                 }
-                if(activated){
-                    hap_2 += node_seq[paths[h][i]];
+                if (activated) {
+                    hap_2 += node_seq[paths[h][t]];
                 }
-                if(paths[h][i] == end_org){
+                if (paths[h][t] == end_org) {
                     activated = false;
                     break;
                 }
             }
 
-            for(auto a : anchorsByHap[h]){
-                if(a.startOrg > start_org && a.endOrg < end_org){
-                    for(auto c : a.colours){
-                        if(p2_color_freq.find(c) == p2_color_freq.end()){
+            for (auto a : anchorsByHap[h]) {
+                if (a.startOrg > start_org && a.endOrg < end_org) {
+                    for (auto c : a.colours) {
+                        if (p2_color_freq.find(c) == p2_color_freq.end()) {
                             p2_color_freq[c] = 1;
                             p2_colors.push_back(c);
-                        }else{
+                        } else {
                             p2_color_freq[c] += 1;
                         }
                     }
                 }
             }
 
-            if(g.level.at(edge.second) == L-1){
-                //std::cout << "P2 (string): done" << std::endl;
+            if (g.level.at(edge.second) == L - 1) {
                 break;
             }
-            auto& next_edge = sink_dp.weighted_p2_edges.at(i+1);
+            auto& next_edge = weighted_p2_edges.at(i + 1);
             int next_hap = g.haplotype.at(next_edge.first);
-            bool found_next = false;
-            //std::cout << "Finding next starting point" << std::endl;
 
             int next_start = find_next_zero_hap(edge.second, next_hap);
             if (next_start != -1) {
                 start_exp = next_start;
-                found_next = true;
             } else {
                 std::cout << "P2 (path recovery) Could not find next_hap=" << next_hap
-                        << " from " << edge.second << " via 0-weight edges\n";
+                          << " from " << edge.second << " via 0-weight edges\n";
             }
-            //std::cout << "P2: Done traversing path for h = " << h << std::endl;            
-
         }
 
         solutions.emplace_back(r1, r2, hap_1, hap_2);
@@ -886,17 +1489,16 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
 
     // computes score and approx cert.
     {
-        auto sink_dp = at3(dp_cur, k_sink, 0, 0, best_r); // corresponds to single sink vertex
-
-        int s_het = sink_dp.s_het;
+        auto sink_dp_copy = at3(dp_cur, k_sink, 0, 0, best_r);
+        int s_het = sink_dp_copy.s_het;
 
         std::vector<int> path_1_homo_colors;
         std::vector<int> path_1_hetero_colors;
 
-        for(auto c : p1_color_by_r[best_r]){
-            if(color_homo_bv[c]){
+        for (auto c : p1_color_by_r[best_r]) {
+            if (color_homo_bv[c]) {
                 path_1_homo_colors.push_back(c);
-            }else{
+            } else {
                 path_1_hetero_colors.push_back(c);
             }
         }
@@ -904,14 +1506,13 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         std::vector<int> path_2_homo_colors;
         std::vector<int> path_2_hetero_colors;
 
-        for(auto c : p2_color_by_r[best_r]){
-            if(color_homo_bv[c]){
+        for (auto c : p2_color_by_r[best_r]) {
+            if (color_homo_bv[c]) {
                 path_2_homo_colors.push_back(c);
-            }else{
+            } else {
                 path_2_hetero_colors.push_back(c);
             }
         }
-
 
         dedup_inplace(path_1_homo_colors);
         dedup_inplace(path_1_hetero_colors);
@@ -928,7 +1529,7 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
         auto p1_color_freq = p1_color_freq_by_r[best_r];
         auto p2_color_freq = p2_color_freq_by_r[best_r];
 
-        for(auto c : intersection){
+        for (auto c : intersection) {
             auto it1 = p1_color_freq.find(c);
             auto it2 = p2_color_freq.find(c);
             int k1 = (it1 == p1_color_freq.end()) ? 0 : it1->second;
@@ -936,7 +1537,7 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
             m_G_hom += (k1 >= k2 ? k1 : k2);
         }
 
-        for(auto c : symdif){
+        for (auto c : symdif) {
             auto it1 = p1_color_freq.find(c);
             auto it2 = p2_color_freq.find(c);
             int k1 = (it1 == p1_color_freq.end()) ? 0 : it1->second;
@@ -944,23 +1545,21 @@ std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploi
             m_G_het += k1 + k2;
         }
 
-
-        // approximation cert.
-        float m_G_hom_avg = m_G_hom / (float) intersection_count;
-        float m_G_het_avg = m_G_het / (float) symdiff_count;
+        float m_G_hom_avg = m_G_hom / (float)intersection_count;
+        float m_G_het_avg = m_G_het / (float)symdiff_count;
         float m_bar = std::max(m_G_hom_avg, m_G_het_avg);
 
-        int loss_het = s_het-m_G_het;
+        int loss_het = s_het - m_G_het;
         float additive_term = loss_het / (float)m_G_het_avg;
 
         int obj = intersection_count + symdiff_count;
         std::cout << "r: " << best_r << " obj: " << obj << std::endl;
 
-        float opt_obj_upper_bound =  m_bar*(obj + additive_term);
+        float opt_obj_upper_bound = m_bar * (obj + additive_term);
 
-        std::cout << "Approximation certificate: multiplicative factor: " << opt_obj_upper_bound/(float)obj  << std::endl;    
+        std::cout << "Approximation certificate: multiplicative factor: "
+                  << opt_obj_upper_bound / (float)obj << std::endl;
     }
-
 
     return solutions;
 }
