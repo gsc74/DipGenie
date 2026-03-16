@@ -350,15 +350,6 @@ static void progress_bar(std::size_t current, std::size_t total,
 }
 
 
-// A small lock table to avoid one lock per dp_next entry (too big).
-// Use a power-of-two size for cheap masking.
-static constexpr std::size_t LOCK_STRIPES = 1u << 16; // 65536 locks
-
-static inline std::size_t lock_of(std::size_t idx) {
-    return idx & (LOCK_STRIPES - 1);
-}
-
-
 // std::vector<std::tuple<int, int, std::string, std::string>> Approximator::diploid_dp_approximation_solver(ExpandedGraph g, int R, std::vector<bool> color_homo_bv, std::vector<std::vector<AnchorRec>> anchorsByHap) {
 
 //     // Build vertex -> position-in-its-level map once
@@ -979,11 +970,11 @@ Approximator::diploid_dp_approximation_solver(
     // Build vertex -> position-in-its-level map once
     const int L = (int)g.vertices_in_level.size();
     std::vector<int> pos_in_level(g.adj_list.size(), -1);
+    if (L > 0 && g.vertices_in_level[0].size() > 1) {
+        std::cout << "There is more than one source on level zero!" << std::endl;
+    }
     for (int l = 0; l < L; ++l) {
         const auto& Lv = g.vertices_in_level[l];
-        if (l == 0 && Lv.size() > 1) {
-            std::cout << "There is more than one source on level zero!" << std::endl;
-        }
         for (int i = 0; i < (int)Lv.size(); ++i) pos_in_level[Lv[i]] = i;
     }
 
@@ -1061,6 +1052,27 @@ Approximator::diploid_dp_approximation_solver(
         sort_dedup(T);
     }
 
+    int max_k = 0;
+    std::size_t max_total = 0;
+    for (int l = 0; l < L; ++l) {
+        const auto& Lv = g.vertices_in_level[l];
+        int k = (int)Lv.size();
+        if (k > max_k) max_k = k;
+        std::size_t sum_deg = 0;
+        for (int v : Lv) sum_deg += g.adj_list[v].size();
+        const std::size_t total = sum_deg * sum_deg;
+        if (total > max_total) max_total = total;
+    }
+
+    const std::size_t max_state = (std::size_t)(R + 1) * max_k * max_k;
+    dp_cur.assign(max_state, dp_entry(NEG_INF, 0));
+    dp_next.assign(max_state, dp_entry(NEG_INF, 0));
+
+    std::vector<int> score_deltas(max_total);
+    std::vector<int> s_hets(max_total);
+    std::vector<std::size_t> cnt((std::size_t)max_k * max_k, 0);
+    std::vector<std::size_t> base((std::size_t)max_k * max_k + 1, 0);
+
     using clock_ = std::chrono::steady_clock;
     auto dp_wall_start = clock_::now();
     (void)dp_wall_start;
@@ -1069,212 +1081,162 @@ Approximator::diploid_dp_approximation_solver(
     auto t0 = std::chrono::steady_clock::now();
 
     int next_progress_pct = 1;  // next threshold to report (in %)
-    std::vector<omp_lock_t> locks(LOCK_STRIPES);
-    for (auto& lk : locks) omp_init_lock(&lk);
 
-    std::vector<int> score_deltas;
-    std::vector<int> s_hets;
-    std::vector<std::size_t> cnt;
-    std::vector<std::size_t> base;
+    // Single-thread edge pools so node pointers stay valid for the whole function.
+    std::deque<EdgeNode> p1_edge_pool;
+    std::deque<EdgeNode> p2_edge_pool;
 
-    // Per-thread edge pools so node pointers stay valid for the whole function.
-    std::vector<std::deque<EdgeNode>> p1_edge_pools(num_threads);
-    std::vector<std::deque<EdgeNode>> p2_edge_pools(num_threads);
+    for (int l = 0; l < L; ++l) {
 
-    #pragma omp parallel num_threads(num_threads)
-    {
-        for (int l = 0; l < L; ++l) {
+        // progress bar + per-level serial bookkeeping
+        const int pct = (int)(((long long)(l + 1) * 100) / L);
+        if (l == 1 || pct >= next_progress_pct || l + 1 == L) {
+            progress_bar((std::size_t)l + 1, (std::size_t)L, t0);
+            while (next_progress_pct <= pct) next_progress_pct += 1;
+        }
 
-            // progress bar + per-level serial bookkeeping
-            #pragma omp single
-            {
-                const int pct = (int)(((long long)(l + 1) * 100) / L);
-                if (l == 1 || pct >= next_progress_pct || l + 1 == L) {
-                    progress_bar((std::size_t)l + 1, (std::size_t)L, t0);
-                    while (next_progress_pct <= pct) next_progress_pct += 1;
+        const auto& Lnow = g.vertices_in_level[l];
+        const int k = (int)Lnow.size();
+
+        // allocate dp_cur on first iteration
+        if (l == 0) {
+            const std::size_t sz0 = (std::size_t)(R + 1) * k * k;
+            for (std::size_t t = 0; t < sz0; ++t) dp_cur[t] = dp_entry(0, 0);
+        }
+
+        // last level
+        if (l + 1 >= L) break;
+
+        const auto& Lnext = g.vertices_in_level[l + 1];
+        const int k2 = (int)Lnext.size();
+        const std::size_t szN = (std::size_t)(R + 1) * k2 * k2;
+
+        // reset in place
+        for (std::size_t t = 0; t < szN; ++t) {
+            auto& e = dp_next[t];
+            e.value = NEG_INF;
+            e.s_het = 0;
+            e.pred_i = std::numeric_limits<int>::max();
+            e.pred_j = std::numeric_limits<int>::max();
+            e.p1_tail = nullptr;
+            e.p2_tail = nullptr;
+            e.p1_count = 0;
+            e.p2_count = 0;
+        }
+
+        // counts per (i,j)
+        for (int i = 0; i < k; ++i) {
+            for (int j = 0; j < k; ++j) {
+                int u1 = Lnow[i], v1 = Lnow[j];
+                const std::size_t du = g.adj_list[u1].size();
+                const std::size_t dv = g.adj_list[v1].size();
+                cnt[(std::size_t)i * k + j] = du * dv;
+            }
+        }
+
+        // prefix sum
+        std::size_t total = 0;
+        for (std::size_t p = 0; p < (std::size_t)k * k; ++p) {
+            base[p] = total;
+            total += cnt[p];
+        }
+        base[(std::size_t)k * k] = total;
+
+        // fill
+        for (int i = 0; i < k; ++i) {
+            for (int j = 0; j < k; ++j) {
+                int u1 = Lnow[i];
+                int v1 = Lnow[j];
+
+                std::size_t out = base[(std::size_t)i * k + j];
+
+                for (const auto& [u2, _wu] : g.adj_list[u1]) {
+                    for (const auto& [v2, _wv] : g.adj_list[v1]) {
+                        int inter = inter_size_union2x2(homo_sorted[u1], homo_sorted[v1],
+                                                        homo_sorted[u2], homo_sorted[v2]);
+                        int symd = symdiff_size_union2x2(hetero_sorted[u1], hetero_sorted[v1],
+                                                         hetero_sorted[u2], hetero_sorted[v2]);
+                        s_hets[out] = symd;
+                        score_deltas[out] = inter + symd;
+                        ++out;
+                    }
                 }
             }
+        }
 
-            const auto& Lnow = g.vertices_in_level[l];
-            const int k = (int)Lnow.size();
-
-            // allocate dp_cur on first iteration
-            #pragma omp single
-            {
-                if (l == 0) {
-                    const std::size_t sz0 = (std::size_t)(R + 1) * k * k;
-                    dp_cur.assign(sz0, dp_entry(0, 0));
-                }
-            }
-
-            // last level
-            if (l + 1 >= L) break;
-
-            const auto& Lnext = g.vertices_in_level[l + 1];
-            const int k2 = (int)Lnext.size();
-            const std::size_t szN = (std::size_t)(R + 1) * k2 * k2;
-
-            // dp_next resize
-            #pragma omp single
-            {
-                dp_next.resize(szN);
-            }
-
-            // reset in place
-            #pragma omp for schedule(static)
-            for (std::size_t t = 0; t < szN; ++t) {
-                auto& e = dp_next[t];
-                e.value = NEG_INF;
-                e.s_het = 0;
-                e.pred_i = std::numeric_limits<int>::max();
-                e.pred_j = std::numeric_limits<int>::max();
-                e.p1_tail = nullptr;
-                e.p2_tail = nullptr;
-                e.p1_count = 0;
-                e.p2_count = 0;
-            }
-
-            // score_deltas precompute
-            #pragma omp single
-            {
-                cnt.assign((std::size_t)k * k, 0);
-                base.assign((std::size_t)k * k + 1, 0);
-            }
-
-            // counts per (i,j)
-            #pragma omp for collapse(2) schedule(static)
+        // relaxation over r (single-threaded, vectorized)
+        #pragma omp simd collapse(3)
+        for (int r = 0; r <= R; ++r) {
             for (int i = 0; i < k; ++i) {
                 for (int j = 0; j < k; ++j) {
-                    int u1 = Lnow[i], v1 = Lnow[j];
-                    const std::size_t du = g.adj_list[u1].size();
-                    const std::size_t dv = g.adj_list[v1].size();
-                    cnt[(std::size_t)i * k + j] = du * dv;
-                }
-            }
 
-            // prefix sum
-            #pragma omp single
-            {
-                std::size_t total = 0;
-                for (std::size_t p = 0; p < (std::size_t)k * k; ++p) {
-                    base[p] = total;
-                    total += cnt[p];
-                }
-                base[(std::size_t)k * k] = total;
+                    dp_entry& src = at3(dp_cur, k, i, j, r);
+                    if (src.value == NEG_INF) continue;
 
-                score_deltas.resize(total);
-                s_hets.resize(total);
-            }
-
-            // fill
-            #pragma omp for collapse(2) schedule(static)
-            for (int i = 0; i < k; ++i) {
-                for (int j = 0; j < k; ++j) {
                     int u1 = Lnow[i];
                     int v1 = Lnow[j];
 
-                    std::size_t out = base[(std::size_t)i * k + j];
+                    std::size_t idx = base[(std::size_t)i * k + j];
 
-                    for (const auto& [u2, _wu] : g.adj_list[u1]) {
-                        for (const auto& [v2, _wv] : g.adj_list[v1]) {
-                            int inter = inter_size_union2x2(homo_sorted[u1], homo_sorted[v1],
-                                                            homo_sorted[u2], homo_sorted[v2]);
-                            int symd = symdiff_size_union2x2(hetero_sorted[u1], hetero_sorted[v1],
-                                                             hetero_sorted[u2], hetero_sorted[v2]);
-                            s_hets[out] = symd;
-                            score_deltas[out] = inter + symd;
-                            ++out;
-                        }
-                    }
-                }
-            }
+                    for (const auto& [u2, wu] : g.adj_list[u1]) {
+                        int iu2 = pos_in_level[u2];
 
-            // relaxation over r
-            #pragma omp for collapse(3) schedule(static)
-            for (int r = 0; r <= R; ++r) {
-                for (int i = 0; i < k; ++i) {
-                    for (int j = 0; j < k; ++j) {
+                        for (const auto& [v2, wv] : g.adj_list[v1]) {
+                            int jv2 = pos_in_level[v2];
 
-                        dp_entry& src = at3(dp_cur, k, i, j, r);
-                        if (src.value == NEG_INF) continue;
+                            int r2 = r + wu + wv;
+                            if (r2 > R) { ++idx; continue; }
 
-                        int u1 = Lnow[i];
-                        int v1 = Lnow[j];
+                            const std::size_t flat = at3_index(k2, iu2, jv2, r2);
+                            auto& dst = dp_next[flat];
+                            int cand = src.value + score_deltas[idx];
 
-                        std::size_t idx = base[(std::size_t)i * k + j];
+                            if (cand > dst.value ||
+                                (cand == dst.value && i < dst.pred_i) ||
+                                (cand == dst.value && i == dst.pred_i && j < dst.pred_j)) {
 
-                        for (const auto& [u2, wu] : g.adj_list[u1]) {
-                            int iu2 = pos_in_level[u2];
+                                dst.value = cand;
+                                dst.s_het = src.s_het + s_hets[idx];
+                                dst.pred_i = i;
+                                dst.pred_j = j;
 
-                            for (const auto& [v2, wv] : g.adj_list[v1]) {
-                                int jv2 = pos_in_level[v2];
+                                dst.p1_tail = src.p1_tail;
+                                dst.p2_tail = src.p2_tail;
+                                dst.p1_count = src.p1_count;
+                                dst.p2_count = src.p2_count;
 
-                                int r2 = r + wu + wv;
-                                if (r2 > R) { ++idx; continue; }
-
-                                const std::size_t flat = at3_index(k2, iu2, jv2, r2);
-
-                                omp_lock_t& lk = locks[lock_of(flat)];
-                                omp_set_lock(&lk);
-
-                                auto& dst = dp_next[flat];
-                                int cand = src.value + score_deltas[idx];
-
-                                if (cand > dst.value ||
-                                    (cand == dst.value && i < dst.pred_i) ||
-                                    (cand == dst.value && i == dst.pred_i && j < dst.pred_j)) {
-
-                                    dst.value = cand;
-                                    dst.s_het = src.s_het + s_hets[idx];
-                                    dst.pred_i = i;
-                                    dst.pred_j = j;
-
-                                    dst.p1_tail = src.p1_tail;
-                                    dst.p2_tail = src.p2_tail;
-                                    dst.p1_count = src.p1_count;
-                                    dst.p2_count = src.p2_count;
-
-                                    const int tid = omp_get_thread_num();
-
-                                    if (wu > 0) {
-                                        p1_edge_pools[tid].emplace_back(u1, u2, dst.p1_tail);
-                                        dst.p1_tail = &p1_edge_pools[tid].back();
-                                        ++dst.p1_count;
-                                    }
-                                    if (wv > 0) {
-                                        p2_edge_pools[tid].emplace_back(v1, v2, dst.p2_tail);
-                                        dst.p2_tail = &p2_edge_pools[tid].back();
-                                        ++dst.p2_count;
-                                    }
-
-                                    if (l + 1 == L - 1) {
-                                        p1_edge_pools[tid].emplace_back(u1, u2, dst.p1_tail);
-                                        dst.p1_tail = &p1_edge_pools[tid].back();
-                                        ++dst.p1_count;
-
-                                        p2_edge_pools[tid].emplace_back(v1, v2, dst.p2_tail);
-                                        dst.p2_tail = &p2_edge_pools[tid].back();
-                                        ++dst.p2_count;
-                                    }
+                                if (wu > 0) {
+                                    p1_edge_pool.emplace_back(u1, u2, dst.p1_tail);
+                                    dst.p1_tail = &p1_edge_pool.back();
+                                    ++dst.p1_count;
+                                }
+                                if (wv > 0) {
+                                    p2_edge_pool.emplace_back(v1, v2, dst.p2_tail);
+                                    dst.p2_tail = &p2_edge_pool.back();
+                                    ++dst.p2_count;
                                 }
 
-                                omp_unset_lock(&lk);
-                                ++idx;
+                                if (l + 1 == L - 1) {
+                                    p1_edge_pool.emplace_back(u1, u2, dst.p1_tail);
+                                    dst.p1_tail = &p1_edge_pool.back();
+                                    ++dst.p1_count;
+
+                                    p2_edge_pool.emplace_back(v1, v2, dst.p2_tail);
+                                    dst.p2_tail = &p2_edge_pool.back();
+                                    ++dst.p2_count;
+                                }
                             }
+
+                            ++idx;
                         }
                     }
                 }
             }
-
-            // roll buffers
-            #pragma omp single
-            {
-                dp_cur.swap(dp_next);
-            }
         }
-    }
 
-    for (auto& lk : locks) omp_destroy_lock(&lk);
+        // roll buffers
+        dp_cur.swap(dp_next);
+    }
 
     // indexer for back tables at a given level l (r-major, then i, then j)
     auto idx3_level = [&](int l, int i, int j, int r) -> std::size_t {

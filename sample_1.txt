@@ -1,0 +1,39 @@
+Classifying kmers...
+Approximation ratio certificate: 2.56649
+Approximation ratio certificate: 2.56702
+Approximation ratio certificate: 2.57133
+Approximation ratio certificate: 2.57186
+Approximation ratio certificate: 2.5741
+Approximation ratio certificate: 2.57462
+Approximation ratio certificate: 2.57634
+Approximation ratio certificate: 2.57687
+Approximation ratio certificate: 2.58046
+Approximation ratio certificate: 2.58099
+Approximation ratio certificate: 2.58421
+Approximation ratio certificate: 2.58474
+Approximation ratio certificate: 2.58619
+Approximation ratio certificate: 2.58672
+Approximation ratio certificate: 2.58773
+Approximation ratio certificate: 2.58826
+Approximation ratio certificate: 2.58927
+Approximation ratio certificate: 2.5898
+r: 0 true score: 22754
+r: 1 true score: 22754
+r: 2 true score: 22754
+r: 3 true score: 22754
+r: 4 true score: 22754
+r: 5 true score: 22754
+r: 6 true score: 22754
+r: 7 true score: 22754
+r: 8 true score: 22737
+r: 9 true score: 22737
+r: 10 true score: 22723
+r: 11 true score: 22723
+r: 12 true score: 22723
+r: 13 true score: 22723
+r: 14 true score: 22723
+r: 15 true score: 22723
+r: 16 true score: 22723
+r: 17 true score: 22723
+r: 0 -> 1, Δcolors: 0, angle: 0°
+Diploid sequences written to: CHM13
