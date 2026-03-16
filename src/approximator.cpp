@@ -975,6 +975,7 @@ Approximator::diploid_dp_approximation_solver(
     std::vector<bool> color_homo_bv,
     std::vector<std::vector<AnchorRec>> anchorsByHap)
 {
+    const auto start_time = std::chrono::steady_clock::now();
     // Build vertex -> position-in-its-level map once
     const int L = (int)g.vertices_in_level.size();
     std::vector<int> pos_in_level(g.adj_list.size(), -1);
@@ -1561,6 +1562,10 @@ Approximator::diploid_dp_approximation_solver(
                   << opt_obj_upper_bound / (float)obj << std::endl;
     }
 
+    const auto end_time = std::chrono::steady_clock::now();
+    const auto elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    std::cout << "diploid_dp_approximation_solver took " << elapsed_ms << " ms" << std::endl;
     return solutions;
 }
 
