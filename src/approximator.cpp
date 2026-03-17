@@ -531,32 +531,17 @@ Approximator::diploid_dp_approximation_solver(
 
     #pragma omp parallel num_threads(num_threads)
     {
+        const std::size_t sz0 = (std::size_t)(R + 1);
+        dp_cur.assign(sz0, dp_entry(0, 0));
+
         for (int l = 0; l < L; ++l) {
 
-            // progress bar + per-level serial bookkeeping
-            #pragma omp single
-            {
-                const int pct = (int)(((long long)(l + 1) * 100) / L);
-                if (l == 1 || pct >= next_progress_pct || l + 1 == L) {
-                    progress_bar((std::size_t)l + 1, (std::size_t)L, t0);
-                    while (next_progress_pct <= pct) next_progress_pct += 1;
-                }
-            }
+            // last level
+            if (l + 1 >= L) break;
 
             const auto& Lnow = g.vertices_in_level[l];
             const int k = (int)Lnow.size();
 
-            // allocate dp_cur on first iteration
-            #pragma omp single
-            {
-                if (l == 0) {
-                    const std::size_t sz0 = (std::size_t)(R + 1) * k * k;
-                    dp_cur.assign(sz0, dp_entry(0, 0));
-                }
-            }
-
-            // last level
-            if (l + 1 >= L) break;
 
             const auto& Lnext = g.vertices_in_level[l + 1];
             const int k2 = (int)Lnext.size();
@@ -565,7 +550,15 @@ Approximator::diploid_dp_approximation_solver(
             // dp_next resize
             #pragma omp single
             {
+                const int pct = (int)(((long long)(l + 1) * 100) / L);
+                if (l == 1 || pct >= next_progress_pct || l + 1 == L) {
+                    progress_bar((std::size_t)l + 1, (std::size_t)L, t0);
+                    while (next_progress_pct <= pct) next_progress_pct += 1;
+                }
+
                 dp_next.resize(szN);
+                cnt.assign((std::size_t)k * k, 0);
+                base.assign((std::size_t)k * k + 1, 0);
             }
 
             // reset in place
@@ -580,13 +573,6 @@ Approximator::diploid_dp_approximation_solver(
                 e.p2_tail = nullptr;
                 e.p1_count = 0;
                 e.p2_count = 0;
-            }
-
-            // score_deltas precompute
-            #pragma omp single
-            {
-                cnt.assign((std::size_t)k * k, 0);
-                base.assign((std::size_t)k * k + 1, 0);
             }
 
             // counts per (i,j)
@@ -638,7 +624,7 @@ Approximator::diploid_dp_approximation_solver(
             }
 
             // relaxation over r
-            #pragma omp for collapse(3) schedule(static)
+            #pragma omp for collapse(3) schedule(guided)
             for (int r = 0; r <= R; ++r) {
                 for (int i = 0; i < k; ++i) {
                     for (int j = 0; j < k; ++j) {
