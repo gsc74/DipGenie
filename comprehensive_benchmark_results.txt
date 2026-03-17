@@ -1,0 +1,390 @@
+Starting Comprehensive Benchmarks (Haploid + Diploid)...
+------------------------------------------------
+Running: ./DipGenie -t1 -p1 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o OUT_CHM13_p1
+[M::main::0.119*1.01] Loaded graph from: test/MHC_4.gfa.gz
+Number of Minimizers
+CHM13.0 : 471226
+HG002.1 : 483005
+HG002.2 : 474157
+HG005.1 : 479033
+HG005.2 : 479135
+[M::compute_and_classify_anchors::8.382*1.00] Indexed reads with spectrum size: 138834
+Number of Anchors
+CHM13.0 : 23673
+HG002.1 : 11762
+HG002.2 : 13757
+HG005.1 : 10374
+HG005.2 : 11677
+Classifying kmers...
+[M::compute_and_classify_anchors] Fitted model: best NLL=87376.61, u_v=1.00 (hom mean), sd_v=0.50 (hom SD), var_w=0.71, p_d=0.10, zp_copy=4.00, zp_copy_het=1.01, err_shape=4.00, max_copy=10
+[M::compute_and_classify_anchors] Phasing done. Homozygous: 15.38%, Heterozygous: 84.62%, Total kmers: 138834
+Approximation ratio certificate: 2.56645
+Approximation ratio certificate: 2.56698
+Approximation ratio certificate: 2.57128
+Approximation ratio certificate: 2.57181
+Approximation ratio certificate: 2.57405
+Approximation ratio certificate: 2.57458
+Approximation ratio certificate: 2.57629
+Approximation ratio certificate: 2.57682
+Approximation ratio certificate: 2.58042
+Approximation ratio certificate: 2.58095
+Approximation ratio certificate: 2.58417
+Approximation ratio certificate: 2.58469
+Approximation ratio certificate: 2.58615
+Approximation ratio certificate: 2.58667
+Approximation ratio certificate: 2.58769
+Approximation ratio certificate: 2.58821
+Approximation ratio certificate: 2.58923
+Approximation ratio certificate: 2.58975
+r: 0 true score: 22754
+r: 1 true score: 22754
+r: 2 true score: 22754
+r: 3 true score: 22754
+r: 4 true score: 22754
+r: 5 true score: 22754
+r: 6 true score: 22754
+r: 7 true score: 22754
+r: 8 true score: 22737
+r: 9 true score: 22737
+r: 10 true score: 22723
+r: 11 true score: 22723
+r: 12 true score: 22723
+r: 13 true score: 22723
+r: 14 true score: 22723
+r: 15 true score: 22723
+r: 16 true score: 22723
+r: 17 true score: 22723
+r: 0 -> 1, Δcolors: 0, angle: 0°
+Recombination count: 0
+Diploid sequences written to: OUT_CHM13_p1
+[M::main] PHI Version: 1.0
+[M::main] CMD: ./DipGenie -t1 -p1 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o OUT_CHM13_p1
+[M::main] Real time: 20.309 sec; CPU: 20.281 sec; Peak RSS: 0.542 GB
+------------------------------------------------
+Running: ./DipGenie -t1 -p1 -g test/MHC_4.gfa.gz -r test/HG002.mhc.2x.fq.gz -o OUT_HG002_p1
+[M::main::0.124*1.01] Loaded graph from: test/MHC_4.gfa.gz
+Number of Minimizers
+CHM13.0 : 471226
+HG002.1 : 483005
+HG002.2 : 474157
+HG005.1 : 479033
+HG005.2 : 479135
+[M::compute_and_classify_anchors::9.593*1.00] Indexed reads with spectrum size: 556108
+Number of Anchors
+CHM13.0 : 18518
+HG002.1 : 22872
+HG002.2 : 30205
+HG005.1 : 17670
+HG005.2 : 15897
+Classifying kmers...
+[M::compute_and_classify_anchors] Fitted model: best NLL=479252.95, u_v=1.00 (hom mean), sd_v=0.50 (hom SD), var_w=0.71, p_d=0.10, zp_copy=3.50, zp_copy_het=1.01, err_shape=2.50, max_copy=10
+[M::compute_and_classify_anchors] Phasing done. Homozygous: 19.16%, Heterozygous: 80.84%, Total kmers: 556108
+Approximation ratio certificate: 2.60176
+Approximation ratio certificate: 2.61193
+Approximation ratio certificate: 2.59678
+Approximation ratio certificate: 2.60034
+Approximation ratio certificate: 2.60457
+Approximation ratio certificate: 2.60347
+Approximation ratio certificate: 2.60767
+Approximation ratio certificate: 2.61845
+Approximation ratio certificate: 2.62304
+Approximation ratio certificate: 2.62293
+Approximation ratio certificate: 2.62749
+Approximation ratio certificate: 2.62553
+Approximation ratio certificate: 2.63008
+Approximation ratio certificate: 2.62293
+Approximation ratio certificate: 2.62746
+Approximation ratio certificate: 2.63046
+Approximation ratio certificate: 2.62517
+Approximation ratio certificate: 2.62816
+r: 0 true score: 29369
+r: 1 true score: 30077
+r: 2 true score: 30507
+r: 3 true score: 31269
+r: 4 true score: 31313
+r: 5 true score: 31488
+r: 6 true score: 31532
+r: 7 true score: 31519
+r: 8 true score: 31558
+r: 9 true score: 31633
+r: 10 true score: 31672
+r: 11 true score: 31746
+r: 12 true score: 31785
+r: 13 true score: 31920
+r: 14 true score: 31959
+r: 15 true score: 31961
+r: 16 true score: 32084
+r: 17 true score: 32086
+r: 0 -> 1, Δcolors: 708, angle: 42.8962°
+r: 1 -> 2, Δcolors: 430, angle: 29.4362°
+r: 2 -> 3, Δcolors: 762, angle: 45°
+r: 3 -> 4, Δcolors: 44, angle: 3.30475°
+Recombination count: 3
+Diploid sequences written to: OUT_HG002_p1
+[M::main] PHI Version: 1.0
+[M::main] CMD: ./DipGenie -t1 -p1 -g test/MHC_4.gfa.gz -r test/HG002.mhc.2x.fq.gz -o OUT_HG002_p1
+[M::main] Real time: 47.061 sec; CPU: 47.055 sec; Peak RSS: 0.851 GB
+------------------------------------------------
+Running: ./DipGenie -t1 -p1 -g test/test.gfa -r test/read.fa -o OUT_toy_p1
+[M::main::0.000*31.51] Loaded graph from: test/test.gfa
+Number of Minimizers
+test_hap_1.0 : 0
+test_hap_2.1 : 0
+test_hap_3.2 : 0
+test_hap_4.3 : 0
+test_hap_4.4 : 0
+[M::compute_and_classify_anchors::0.000*11.98] Indexed reads with spectrum size: 0
+Number of Anchors
+test_hap_1.0 : 0
+test_hap_2.1 : 0
+test_hap_3.2 : 0
+test_hap_4.3 : 0
+test_hap_4.4 : 0
+Classifying kmers...
+[M::compute_and_classify_anchors] Fitted model: best NLL=0.00, u_v=1.00 (hom mean), sd_v=0.50 (hom SD), var_w=0.71, p_d=0.10, zp_copy=1.01, zp_copy_het=1.01, err_shape=1.01, max_copy=10
+[M::compute_and_classify_anchors] Phasing done. Homozygous: 0.00%, Heterozygous: 0.00%, Total kmers: 0
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+Approximation ratio certificate: -nan
+r: 0 true score: 0
+r: 1 true score: 0
+r: 2 true score: 0
+r: 3 true score: 0
+r: 4 true score: 0
+r: 5 true score: 0
+r: 6 true score: 0
+r: 7 true score: 0
+r: 8 true score: 0
+r: 9 true score: 0
+r: 10 true score: 0
+r: 11 true score: 0
+r: 12 true score: 0
+r: 13 true score: 0
+r: 14 true score: 0
+r: 15 true score: 0
+r: 16 true score: 0
+r: 17 true score: 0
+r: 0 -> 1, Δcolors: 0, angle: -nan°
+r: 1 -> 2, Δcolors: 0, angle: -nan°
+r: 2 -> 3, Δcolors: 0, angle: -nan°
+r: 3 -> 4, Δcolors: 0, angle: -nan°
+r: 4 -> 5, Δcolors: 0, angle: -nan°
+r: 5 -> 6, Δcolors: 0, angle: -nan°
+r: 6 -> 7, Δcolors: 0, angle: -nan°
+r: 7 -> 8, Δcolors: 0, angle: -nan°
+r: 8 -> 9, Δcolors: 0, angle: -nan°
+r: 9 -> 10, Δcolors: 0, angle: -nan°
+r: 10 -> 11, Δcolors: 0, angle: -nan°
+r: 11 -> 12, Δcolors: 0, angle: -nan°
+r: 12 -> 13, Δcolors: 0, angle: -nan°
+r: 13 -> 14, Δcolors: 0, angle: -nan°
+r: 14 -> 15, Δcolors: 0, angle: -nan°
+r: 15 -> 16, Δcolors: 0, angle: -nan°
+r: 16 -> 17, Δcolors: 0, angle: -nan°
+r: 17 -> 18, Δcolors: 0, angle: -nan°
+Recombination count: 0
+Diploid sequences written to: OUT_toy_p1
+[M::main] PHI Version: 1.0
+[M::main] CMD: ./DipGenie -t1 -p1 -g test/test.gfa -r test/read.fa -o OUT_toy_p1
+[M::main] Real time: 0.406 sec; CPU: 0.407 sec; Peak RSS: 0.004 GB
+------------------------------------------------
+Running: ./DipGenie -t1 -p2 -R18 -g test/MHC_4.gfa.gz -r test/HG002.mhc.2x.fq.gz -o OUT_HG002_R18
+[M::main::0.106*1.01] Loaded graph from: test/MHC_4.gfa.gz
+Number of Minimizers
+CHM13.0 : 471226
+HG002.1 : 483005
+HG002.2 : 474157
+HG005.1 : 479033
+HG005.2 : 479135
+[M::compute_and_classify_anchors::9.822*1.00] Indexed reads with spectrum size: 556108
+Number of Anchors
+CHM13.0 : 18518
+HG002.1 : 22872
+HG002.2 : 30205
+HG005.1 : 17670
+HG005.2 : 15897
+Classifying kmers...
+[M::compute_and_classify_anchors] Fitted model: best NLL=479252.95, u_v=1.00 (hom mean), sd_v=0.50 (hom SD), var_w=0.71, p_d=0.10, zp_copy=3.50, zp_copy_het=1.01, err_shape=2.50, max_copy=10
+[M::compute_and_classify_anchors] Phasing done. Homozygous: 19.16%, Heterozygous: 80.84%, Total kmers: 556108
+Creating hetro/hom-zygous colors per vertex lists
+Running DP
+[>                                       ]   0%  2/123603  | 104673.7 it/s  | ETA 1s         [>                                       ]   1%  1237/123603  | 2570.6 it/s  | ETA 48s         [>                                       ]   2%  2473/123603  | 4183.6 it/s  | ETA 29s         [=>                                      ]   3%  3709/123603  | 5067.6 it/s  | ETA 24s         [=>                                      ]   4%  4945/123603  | 5414.0 it/s  | ETA 22s         [==>                                     ]   5%  6181/123603  | 4994.1 it/s  | ETA 24s         [==>                                     ]   6%  7417/123603  | 5457.8 it/s  | ETA 21s         [==>                                     ]   7%  8653/123603  | 5950.8 it/s  | ETA 19s         [===>                                    ]   8%  9889/123603  | 6380.5 it/s  | ETA 18s         [===>                                    ]   9%  11125/123603  | 6694.5 it/s  | ETA 17s         [====>                                   ]  10%  12361/123603  | 7190.6 it/s  | ETA 15s         [====>                                   ]  11%  13597/123603  | 7792.7 it/s  | ETA 14s         [====>                                   ]  12%  14833/123603  | 8207.8 it/s  | ETA 13s         [=====>                                  ]  13%  16069/123603  | 8775.2 it/s  | ETA 12s         [=====>                                  ]  14%  17305/123603  | 9301.7 it/s  | ETA 11s         [======>                                 ]  15%  18541/123603  | 9807.7 it/s  | ETA 11s         [======>                                 ]  16%  19777/123603  | 10289.9 it/s  | ETA 10s         [======>                                 ]  17%  21013/123603  | 10652.4 it/s  | ETA 10s         [=======>                                ]  18%  22249/123603  | 10860.7 it/s  | ETA 9s         [=======>                                ]  19%  23485/123603  | 10408.0 it/s  | ETA 10s         [========>                               ]  20%  24721/123603  | 10324.3 it/s  | ETA 10s         [========>                               ]  21%  25957/123603  | 10408.3 it/s  | ETA 9s         [========>                               ]  22%  27193/123603  | 10544.8 it/s  | ETA 9s         [=========>                              ]  23%  28429/123603  | 10401.2 it/s  | ETA 9s         [=========>                              ]  24%  29665/123603  | 10569.6 it/s  | ETA 9s         [==========>                             ]  25%  30901/123603  | 10683.4 it/s  | ETA 9s         [==========>                             ]  26%  32137/123603  | 10895.7 it/s  | ETA 8s         [==========>                             ]  27%  33373/123603  | 11112.7 it/s  | ETA 8s         [===========>                            ]  28%  34609/123603  | 11361.9 it/s  | ETA 8s         [===========>                            ]  29%  35845/123603  | 11438.5 it/s  | ETA 8s         [============>                           ]  30%  37081/123603  | 11520.1 it/s  | ETA 8s         [============>                           ]  31%  38317/123603  | 11650.8 it/s  | ETA 7s         [============>                           ]  32%  39553/123603  | 11847.1 it/s  | ETA 7s         [=============>                          ]  33%  40789/123603  | 12057.7 it/s  | ETA 7s         [=============>                          ]  34%  42026/123603  | 12252.3 it/s  | ETA 7s         [==============>                         ]  35%  43262/123603  | 12533.6 it/s  | ETA 6s         [==============>                         ]  36%  44498/123603  | 12817.4 it/s  | ETA 6s         [==============>                         ]  37%  45734/123603  | 13109.8 it/s  | ETA 6s         [===============>                        ]  38%  46970/123603  | 13386.9 it/s  | ETA 6s         [===============>                        ]  39%  48206/123603  | 13600.4 it/s  | ETA 6s         [================>                       ]  40%  49442/123603  | 13545.0 it/s  | ETA 5s         [================>                       ]  41%  50678/123603  | 13687.5 it/s  | ETA 5s         [================>                       ]  42%  51914/123603  | 13836.1 it/s  | ETA 5s         [=================>                      ]  43%  53150/123603  | 13874.9 it/s  | ETA 5s         [=================>                      ]  44%  54386/123603  | 13807.1 it/s  | ETA 5s         [==================>                     ]  45%  55622/123603  | 12985.7 it/s  | ETA 5s         [==================>                     ]  46%  56858/123603  | 12461.4 it/s  | ETA 5s         [==================>                     ]  47%  58094/123603  | 12129.4 it/s  | ETA 5s         [===================>                    ]  48%  59330/123603  | 11957.2 it/s  | ETA 5s         [===================>                    ]  49%  60566/123603  | 12112.9 it/s  | ETA 5s         [====================>                   ]  50%  61802/123603  | 12241.7 it/s  | ETA 5s         [====================>                   ]  51%  63038/123603  | 12396.2 it/s  | ETA 5s         [====================>                   ]  52%  64274/123603  | 12552.6 it/s  | ETA 5s         [=====================>                  ]  53%  65510/123603  | 12745.2 it/s  | ETA 5s         [=====================>                  ]  54%  66746/123603  | 12919.5 it/s  | ETA 4s         [======================>                 ]  55%  67982/123603  | 13109.8 it/s  | ETA 4s         [======================>                 ]  56%  69218/123603  | 13297.8 it/s  | ETA 4s         [======================>                 ]  57%  70454/123603  | 13473.2 it/s  | ETA 4s         [=======================>                ]  58%  71690/123603  | 13630.5 it/s  | ETA 4s         [=======================>                ]  59%  72926/123603  | 13765.7 it/s  | ETA 4s         [========================>               ]  60%  74162/123603  | 13857.6 it/s  | ETA 4s         [========================>               ]  61%  75398/123603  | 13983.4 it/s  | ETA 3s         [========================>               ]  62%  76634/123603  | 14121.8 it/s  | ETA 3s         [=========================>              ]  63%  77870/123603  | 14283.1 it/s  | ETA 3s         [=========================>              ]  64%  79106/123603  | 14440.6 it/s  | ETA 3s         [==========================>             ]  65%  80342/123603  | 14602.2 it/s  | ETA 3s         [==========================>             ]  66%  81578/123603  | 14766.6 it/s  | ETA 3s         [==========================>             ]  67%  82815/123603  | 14921.9 it/s  | ETA 3s         [===========================>            ]  68%  84051/123603  | 15062.7 it/s  | ETA 3s         [===========================>            ]  69%  85287/123603  | 15208.4 it/s  | ETA 3s         [============================>           ]  70%  86523/123603  | 15363.3 it/s  | ETA 2s         [============================>           ]  71%  87759/123603  | 15526.1 it/s  | ETA 2s         [============================>           ]  72%  88995/123603  | 15677.3 it/s  | ETA 2s         [=============================>          ]  73%  90231/123603  | 15824.7 it/s  | ETA 2s         [=============================>          ]  74%  91467/123603  | 15945.6 it/s  | ETA 2s         [==============================>         ]  75%  92703/123603  | 16089.5 it/s  | ETA 2s         [==============================>         ]  76%  93939/123603  | 16179.5 it/s  | ETA 2s         [==============================>         ]  77%  95175/123603  | 16289.6 it/s  | ETA 2s         [===============================>        ]  78%  96411/123603  | 16405.2 it/s  | ETA 2s         [===============================>        ]  79%  97647/123603  | 16520.6 it/s  | ETA 2s         [================================>       ]  80%  98883/123603  | 16636.1 it/s  | ETA 1s         [================================>       ]  81%  100119/123603  | 16759.4 it/s  | ETA 1s         [================================>       ]  82%  101355/123603  | 16870.7 it/s  | ETA 1s         [=================================>      ]  83%  102591/123603  | 16969.5 it/s  | ETA 1s         [=================================>      ]  84%  103827/123603  | 17090.2 it/s  | ETA 1s         [==================================>     ]  85%  105063/123603  | 17193.4 it/s  | ETA 1s         [==================================>     ]  86%  106299/123603  | 17328.0 it/s  | ETA 1s         [==================================>     ]  87%  107535/123603  | 17433.8 it/s  | ETA 1s         [===================================>    ]  88%  108771/123603  | 17490.4 it/s  | ETA 1s         [===================================>    ]  89%  110007/123603  | 17519.8 it/s  | ETA 1s         [====================================>   ]  90%  111243/123603  | 17576.8 it/s  | ETA 1s         [====================================>   ]  91%  112479/123603  | 17625.8 it/s  | ETA 1s         [====================================>   ]  92%  113715/123603  | 17547.4 it/s  | ETA 1s         [=====================================>  ]  93%  114951/123603  | 17558.1 it/s  | ETA 0s         [=====================================>  ]  94%  116187/123603  | 17617.4 it/s  | ETA 0s         [======================================> ]  95%  117423/123603  | 17668.4 it/s  | ETA 0s         [======================================> ]  96%  118659/123603  | 17709.8 it/s  | ETA 0s         [======================================> ]  97%  119895/123603  | 17616.1 it/s  | ETA 0s         [=======================================>]  98%  121131/123603  | 17464.7 it/s  | ETA 0s         [=======================================>]  99%  122367/123603  | 16855.1 it/s  | ETA 0s         [========================================] 100%  123603/123603  | 16373.7 it/s  | ETA 0s         
+DP value: 81228
+r: 18 obj: 18208
+Approximation certificate: multiplicative factor: 6.95302
+diploid_dp_approximation_solver took 7603 ms
+recombinations in P1: 13, recombinations in P2: 5, bp of P1: 5041473, bp of P2: 4937716
+Diploid sequences written to: OUT_HG002_R18
+[M::main] PHI Version: 1.0
+[M::main] CMD: ./DipGenie -t1 -p2 -R18 -g test/MHC_4.gfa.gz -r test/HG002.mhc.2x.fq.gz -o OUT_HG002_R18
+[M::main] Real time: 55.065 sec; CPU: 55.031 sec; Peak RSS: 1.887 GB
+------------------------------------------------
+Running: ./DipGenie -t1 -p2 -R24 -g test/MHC_4.gfa.gz -r test/HG002.mhc.2x.fq.gz -o OUT_HG002_R24
+[M::main::0.109*1.01] Loaded graph from: test/MHC_4.gfa.gz
+Number of Minimizers
+CHM13.0 : 471226
+HG002.1 : 483005
+HG002.2 : 474157
+HG005.1 : 479033
+HG005.2 : 479135
+[M::compute_and_classify_anchors::9.860*1.00] Indexed reads with spectrum size: 556108
+Number of Anchors
+CHM13.0 : 18518
+HG002.1 : 22872
+HG002.2 : 30205
+HG005.1 : 17670
+HG005.2 : 15897
+Classifying kmers...
+[M::compute_and_classify_anchors] Fitted model: best NLL=479252.95, u_v=1.00 (hom mean), sd_v=0.50 (hom SD), var_w=0.71, p_d=0.10, zp_copy=3.50, zp_copy_het=1.01, err_shape=2.50, max_copy=10
+[M::compute_and_classify_anchors] Phasing done. Homozygous: 19.16%, Heterozygous: 80.84%, Total kmers: 556108
+Creating hetro/hom-zygous colors per vertex lists
+Running DP
+[>                                       ]   0%  2/123603  | 94286.3 it/s  | ETA 1s         [>                                       ]   1%  1237/123603  | 1931.6 it/s  | ETA 1m3s         [>                                       ]   2%  2473/123603  | 3156.4 it/s  | ETA 38s         [=>                                      ]   3%  3709/123603  | 3842.0 it/s  | ETA 31s         [=>                                      ]   4%  4945/123603  | 4112.9 it/s  | ETA 29s         [==>                                     ]   5%  6181/123603  | 3775.0 it/s  | ETA 31s         [==>                                     ]   6%  7417/123603  | 4126.9 it/s  | ETA 28s         [==>                                     ]   7%  8653/123603  | 4506.7 it/s  | ETA 26s         [===>                                    ]   8%  9889/123603  | 4834.6 it/s  | ETA 24s         [===>                                    ]   9%  11125/123603  | 5079.4 it/s  | ETA 22s         [====>                                   ]  10%  12361/123603  | 5457.9 it/s  | ETA 20s         [====>                                   ]  11%  13597/123603  | 5917.5 it/s  | ETA 19s         [====>                                   ]  12%  14833/123603  | 6237.0 it/s  | ETA 17s         [=====>                                  ]  13%  16069/123603  | 6671.2 it/s  | ETA 16s         [=====>                                  ]  14%  17305/123603  | 7071.2 it/s  | ETA 15s         [======>                                 ]  15%  18541/123603  | 7458.3 it/s  | ETA 14s         [======>                                 ]  16%  19777/123603  | 7833.1 it/s  | ETA 13s         [======>                                 ]  17%  21013/123603  | 8115.9 it/s  | ETA 13s         [=======>                                ]  18%  22249/123603  | 8277.3 it/s  | ETA 12s         [=======>                                ]  19%  23485/123603  | 7926.3 it/s  | ETA 13s         [========>                               ]  20%  24721/123603  | 7868.9 it/s  | ETA 13s         [========>                               ]  21%  25957/123603  | 7938.7 it/s  | ETA 12s         [========>                               ]  22%  27193/123603  | 8048.4 it/s  | ETA 12s         [=========>                              ]  23%  28429/123603  | 7941.1 it/s  | ETA 12s         [=========>                              ]  24%  29665/123603  | 8070.6 it/s  | ETA 12s         [==========>                             ]  25%  30901/123603  | 8163.9 it/s  | ETA 11s         [==========>                             ]  26%  32137/123603  | 8330.6 it/s  | ETA 11s         [==========>                             ]  27%  33373/123603  | 8497.9 it/s  | ETA 11s         [===========>                            ]  28%  34609/123603  | 8691.6 it/s  | ETA 10s         [===========>                            ]  29%  35845/123603  | 8754.9 it/s  | ETA 10s         [============>                           ]  30%  37081/123603  | 8821.9 it/s  | ETA 10s         [============>                           ]  31%  38317/123603  | 8924.9 it/s  | ETA 10s         [============>                           ]  32%  39553/123603  | 9082.5 it/s  | ETA 9s         [=============>                          ]  33%  40789/123603  | 9247.4 it/s  | ETA 9s         [=============>                          ]  34%  42026/123603  | 9398.9 it/s  | ETA 9s         [==============>                         ]  35%  43262/123603  | 9616.6 it/s  | ETA 8s         [==============>                         ]  36%  44498/123603  | 9835.2 it/s  | ETA 8s         [==============>                         ]  37%  45734/123603  | 10060.3 it/s  | ETA 8s         [===============>                        ]  38%  46970/123603  | 10274.3 it/s  | ETA 7s         [===============>                        ]  39%  48206/123603  | 10436.7 it/s  | ETA 7s         [================>                       ]  40%  49442/123603  | 10402.2 it/s  | ETA 7s         [================>                       ]  41%  50678/123603  | 10511.3 it/s  | ETA 7s         [================>                       ]  42%  51914/123603  | 10627.7 it/s  | ETA 7s         [=================>                      ]  43%  53150/123603  | 10661.0 it/s  | ETA 7s         [=================>                      ]  44%  54386/123603  | 10603.1 it/s  | ETA 7s         [==================>                     ]  45%  55622/123603  | 9951.9 it/s  | ETA 7s         [==================>                     ]  46%  56858/123603  | 9530.9 it/s  | ETA 7s         [==================>                     ]  47%  58094/123603  | 9269.5 it/s  | ETA 7s         [===================>                    ]  48%  59330/123603  | 9130.9 it/s  | ETA 7s         [===================>                    ]  49%  60566/123603  | 9251.1 it/s  | ETA 7s         [====================>                   ]  50%  61802/123603  | 9354.1 it/s  | ETA 7s         [====================>                   ]  51%  63038/123603  | 9474.1 it/s  | ETA 6s         [====================>                   ]  52%  64274/123603  | 9593.4 it/s  | ETA 6s         [=====================>                  ]  53%  65510/123603  | 9741.7 it/s  | ETA 6s         [=====================>                  ]  54%  66746/123603  | 9878.3 it/s  | ETA 6s         [======================>                 ]  55%  67982/123603  | 10025.9 it/s  | ETA 6s         [======================>                 ]  56%  69218/123603  | 10171.7 it/s  | ETA 5s         [======================>                 ]  57%  70454/123603  | 10305.2 it/s  | ETA 5s         [=======================>                ]  58%  71690/123603  | 10423.5 it/s  | ETA 5s         [=======================>                ]  59%  72926/123603  | 10525.5 it/s  | ETA 5s         [========================>               ]  60%  74162/123603  | 10598.0 it/s  | ETA 5s         [========================>               ]  61%  75398/123603  | 10696.9 it/s  | ETA 5s         [========================>               ]  62%  76634/123603  | 10803.0 it/s  | ETA 4s         [=========================>              ]  63%  77870/123603  | 10925.4 it/s  | ETA 4s         [=========================>              ]  64%  79106/123603  | 11046.0 it/s  | ETA 4s         [==========================>             ]  65%  80342/123603  | 11171.2 it/s  | ETA 4s         [==========================>             ]  66%  81578/123603  | 11298.3 it/s  | ETA 4s         [==========================>             ]  67%  82815/123603  | 11419.4 it/s  | ETA 4s         [===========================>            ]  68%  84051/123603  | 11529.8 it/s  | ETA 3s         [===========================>            ]  69%  85287/123603  | 11644.1 it/s  | ETA 3s         [============================>           ]  70%  86523/123603  | 11765.1 it/s  | ETA 3s         [============================>           ]  71%  87759/123603  | 11892.9 it/s  | ETA 3s         [============================>           ]  72%  88995/123603  | 12011.4 it/s  | ETA 3s         [=============================>          ]  73%  90231/123603  | 12126.5 it/s  | ETA 3s         [=============================>          ]  74%  91467/123603  | 12219.4 it/s  | ETA 3s         [==============================>         ]  75%  92703/123603  | 12329.4 it/s  | ETA 3s         [==============================>         ]  76%  93939/123603  | 12399.1 it/s  | ETA 2s         [==============================>         ]  77%  95175/123603  | 12485.8 it/s  | ETA 2s         [===============================>        ]  78%  96411/123603  | 12574.8 it/s  | ETA 2s         [===============================>        ]  79%  97647/123603  | 12664.4 it/s  | ETA 2s         [================================>       ]  80%  98883/123603  | 12755.7 it/s  | ETA 2s         [================================>       ]  81%  100119/123603  | 12847.7 it/s  | ETA 2s         [================================>       ]  82%  101355/123603  | 12932.0 it/s  | ETA 2s         [=================================>      ]  83%  102591/123603  | 13012.3 it/s  | ETA 2s         [=================================>      ]  84%  103827/123603  | 13106.6 it/s  | ETA 2s         [==================================>     ]  85%  105063/123603  | 13186.3 it/s  | ETA 1s         [==================================>     ]  86%  106299/123603  | 13290.3 it/s  | ETA 1s         [==================================>     ]  87%  107535/123603  | 13371.0 it/s  | ETA 1s         [===================================>    ]  88%  108771/123603  | 13417.3 it/s  | ETA 1s         [===================================>    ]  89%  110007/123603  | 13440.8 it/s  | ETA 1s         [====================================>   ]  90%  111243/123603  | 13487.0 it/s  | ETA 1s         [====================================>   ]  91%  112479/123603  | 13527.4 it/s  | ETA 1s         [====================================>   ]  92%  113715/123603  | 13471.1 it/s  | ETA 1s         [=====================================>  ]  93%  114951/123603  | 13481.5 it/s  | ETA 1s         [=====================================>  ]  94%  116187/123603  | 13529.0 it/s  | ETA 1s         [======================================> ]  95%  117423/123603  | 13570.8 it/s  | ETA 0s         [======================================> ]  96%  118659/123603  | 13604.4 it/s  | ETA 0s         [======================================> ]  97%  119895/123603  | 13534.2 it/s  | ETA 0s         [=======================================>]  98%  121131/123603  | 13419.4 it/s  | ETA 0s         [=======================================>]  99%  122367/123603  | 12941.0 it/s  | ETA 0s         [========================================] 100%  123603/123603  | 12561.4 it/s  | ETA 0s         
+DP value: 81499
+r: 24 obj: 18055
+Approximation certificate: multiplicative factor: 7.03419
+diploid_dp_approximation_solver took 9899 ms
+recombinations in P1: 18, recombinations in P2: 6, bp of P1: 5044971, bp of P2: 4937767
+Diploid sequences written to: OUT_HG002_R24
+[M::main] PHI Version: 1.0
+[M::main] CMD: ./DipGenie -t1 -p2 -R24 -g test/MHC_4.gfa.gz -r test/HG002.mhc.2x.fq.gz -o OUT_HG002_R24
+[M::main] Real time: 57.129 sec; CPU: 57.116 sec; Peak RSS: 2.163 GB
+------------------------------------------------
+Running: ./DipGenie -t1 -p2 -R30 -g test/MHC_4.gfa.gz -r test/HG002.mhc.2x.fq.gz -o OUT_HG002_R30
+[M::main::0.106*1.01] Loaded graph from: test/MHC_4.gfa.gz
+Number of Minimizers
+CHM13.0 : 471226
+HG002.1 : 483005
+HG002.2 : 474157
+HG005.1 : 479033
+HG005.2 : 479135
+[M::compute_and_classify_anchors::9.802*1.00] Indexed reads with spectrum size: 556108
+Number of Anchors
+CHM13.0 : 18518
+HG002.1 : 22872
+HG002.2 : 30205
+HG005.1 : 17670
+HG005.2 : 15897
+Classifying kmers...
+[M::compute_and_classify_anchors] Fitted model: best NLL=479252.95, u_v=1.00 (hom mean), sd_v=0.50 (hom SD), var_w=0.71, p_d=0.10, zp_copy=3.50, zp_copy_het=1.01, err_shape=2.50, max_copy=10
+[M::compute_and_classify_anchors] Phasing done. Homozygous: 19.16%, Heterozygous: 80.84%, Total kmers: 556108
+Creating hetro/hom-zygous colors per vertex lists
+Running DP
+[>                                       ]   0%  2/123603  | 79990.4 it/s  | ETA 2s         [>                                       ]   1%  1237/123603  | 1517.8 it/s  | ETA 1m21s         [>                                       ]   2%  2473/123603  | 2488.9 it/s  | ETA 49s         [=>                                      ]   3%  3709/123603  | 3042.1 it/s  | ETA 39s         [=>                                      ]   4%  4945/123603  | 3272.4 it/s  | ETA 36s         [==>                                     ]   5%  6181/123603  | 3000.6 it/s  | ETA 39s         [==>                                     ]   6%  7417/123603  | 3274.4 it/s  | ETA 35s         [==>                                     ]   7%  8653/123603  | 3578.1 it/s  | ETA 32s         [===>                                    ]   8%  9889/123603  | 3838.4 it/s  | ETA 30s         [===>                                    ]   9%  11125/123603  | 4041.7 it/s  | ETA 28s         [====>                                   ]  10%  12361/123603  | 4343.3 it/s  | ETA 26s         [====>                                   ]  11%  13597/123603  | 4709.5 it/s  | ETA 23s         [====>                                   ]  12%  14833/123603  | 4966.6 it/s  | ETA 22s         [=====>                                  ]  13%  16069/123603  | 5315.5 it/s  | ETA 20s         [=====>                                  ]  14%  17305/123603  | 5640.7 it/s  | ETA 19s         [======>                                 ]  15%  18541/123603  | 5953.9 it/s  | ETA 18s         [======>                                 ]  16%  19777/123603  | 6255.4 it/s  | ETA 17s         [======>                                 ]  17%  21013/123603  | 6486.2 it/s  | ETA 16s         [=======>                                ]  18%  22249/123603  | 6621.8 it/s  | ETA 15s         [=======>                                ]  19%  23485/123603  | 6344.1 it/s  | ETA 16s         [========>                               ]  20%  24721/123603  | 6304.8 it/s  | ETA 16s         [========>                               ]  21%  25957/123603  | 6363.6 it/s  | ETA 15s         [========>                               ]  22%  27193/123603  | 6457.8 it/s  | ETA 15s         [=========>                              ]  23%  28429/123603  | 6372.0 it/s  | ETA 15s         [=========>                              ]  24%  29665/123603  | 6476.8 it/s  | ETA 15s         [==========>                             ]  25%  30901/123603  | 6555.0 it/s  | ETA 14s         [==========>                             ]  26%  32137/123603  | 6692.1 it/s  | ETA 14s         [==========>                             ]  27%  33373/123603  | 6829.5 it/s  | ETA 13s         [===========>                            ]  28%  34609/123603  | 6987.4 it/s  | ETA 13s         [===========>                            ]  29%  35845/123603  | 7041.7 it/s  | ETA 12s         [============>                           ]  30%  37081/123603  | 7097.5 it/s  | ETA 12s         [============>                           ]  31%  38317/123603  | 7181.6 it/s  | ETA 12s         [============>                           ]  32%  39553/123603  | 7310.0 it/s  | ETA 11s         [=============>                          ]  33%  40789/123603  | 7444.3 it/s  | ETA 11s         [=============>                          ]  34%  42026/123603  | 7568.5 it/s  | ETA 11s         [==============>                         ]  35%  43262/123603  | 7744.4 it/s  | ETA 10s         [==============>                         ]  36%  44498/123603  | 7920.7 it/s  | ETA 10s         [==============>                         ]  37%  45734/123603  | 8103.4 it/s  | ETA 10s         [===============>                        ]  38%  46970/123603  | 8277.4 it/s  | ETA 9s         [===============>                        ]  39%  48206/123603  | 8412.6 it/s  | ETA 9s         [================>                       ]  40%  49442/123603  | 8381.4 it/s  | ETA 9s         [================>                       ]  41%  50678/123603  | 8470.9 it/s  | ETA 9s         [================>                       ]  42%  51914/123603  | 8564.8 it/s  | ETA 8s         [=================>                      ]  43%  53150/123603  | 8593.7 it/s  | ETA 8s         [=================>                      ]  44%  54386/123603  | 8547.4 it/s  | ETA 8s         [==================>                     ]  45%  55622/123603  | 8000.7 it/s  | ETA 8s         [==================>                     ]  46%  56858/123603  | 7670.3 it/s  | ETA 9s         [==================>                     ]  47%  58094/123603  | 7456.8 it/s  | ETA 9s         [===================>                    ]  48%  59330/123603  | 7336.7 it/s  | ETA 9s         [===================>                    ]  49%  60566/123603  | 7434.7 it/s  | ETA 8s         [====================>                   ]  50%  61802/123603  | 7519.6 it/s  | ETA 8s         [====================>                   ]  51%  63038/123603  | 7618.0 it/s  | ETA 8s         [====================>                   ]  52%  64274/123603  | 7715.6 it/s  | ETA 8s         [=====================>                  ]  53%  65510/123603  | 7835.4 it/s  | ETA 7s         [=====================>                  ]  54%  66746/123603  | 7946.2 it/s  | ETA 7s         [======================>                 ]  55%  67982/123603  | 8065.5 it/s  | ETA 7s         [======================>                 ]  56%  69218/123603  | 8183.8 it/s  | ETA 7s         [======================>                 ]  57%  70454/123603  | 8294.2 it/s  | ETA 6s         [=======================>                ]  58%  71690/123603  | 8392.8 it/s  | ETA 6s         [=======================>                ]  59%  72926/123603  | 8479.9 it/s  | ETA 6s         [========================>               ]  60%  74162/123603  | 8541.9 it/s  | ETA 6s         [========================>               ]  61%  75398/123603  | 8623.0 it/s  | ETA 6s         [========================>               ]  62%  76634/123603  | 8711.0 it/s  | ETA 5s         [=========================>              ]  63%  77870/123603  | 8814.0 it/s  | ETA 5s         [=========================>              ]  64%  79106/123603  | 8911.6 it/s  | ETA 5s         [==========================>             ]  65%  80342/123603  | 9015.6 it/s  | ETA 5s         [==========================>             ]  66%  81578/123603  | 9119.3 it/s  | ETA 5s         [==========================>             ]  67%  82815/123603  | 9217.9 it/s  | ETA 4s         [===========================>            ]  68%  84051/123603  | 9308.6 it/s  | ETA 4s         [===========================>            ]  69%  85287/123603  | 9402.3 it/s  | ETA 4s         [============================>           ]  70%  86523/123603  | 9501.2 it/s  | ETA 4s         [============================>           ]  71%  87759/123603  | 9605.3 it/s  | ETA 4s         [============================>           ]  72%  88995/123603  | 9702.9 it/s  | ETA 4s         [=============================>          ]  73%  90231/123603  | 9798.7 it/s  | ETA 3s         [=============================>          ]  74%  91467/123603  | 9877.2 it/s  | ETA 3s         [==============================>         ]  75%  92703/123603  | 9968.3 it/s  | ETA 3s         [==============================>         ]  76%  93939/123603  | 10027.7 it/s  | ETA 3s         [==============================>         ]  77%  95175/123603  | 10099.0 it/s  | ETA 3s         [===============================>        ]  78%  96411/123603  | 10174.2 it/s  | ETA 3s         [===============================>        ]  79%  97647/123603  | 10248.3 it/s  | ETA 3s         [================================>       ]  80%  98883/123603  | 10323.5 it/s  | ETA 2s         [================================>       ]  81%  100119/123603  | 10402.3 it/s  | ETA 2s         [================================>       ]  82%  101355/123603  | 10473.9 it/s  | ETA 2s         [=================================>      ]  83%  102591/123603  | 10537.7 it/s  | ETA 2s         [=================================>      ]  84%  103827/123603  | 10614.9 it/s  | ETA 2s         [==================================>     ]  85%  105063/123603  | 10681.8 it/s  | ETA 2s         [==================================>     ]  86%  106299/123603  | 10766.8 it/s  | ETA 2s         [==================================>     ]  87%  107535/123603  | 10835.2 it/s  | ETA 1s         [===================================>    ]  88%  108771/123603  | 10874.1 it/s  | ETA 1s         [===================================>    ]  89%  110007/123603  | 10897.5 it/s  | ETA 1s         [====================================>   ]  90%  111243/123603  | 10936.6 it/s  | ETA 1s         [====================================>   ]  91%  112479/123603  | 10970.7 it/s  | ETA 1s         [====================================>   ]  92%  113715/123603  | 10923.7 it/s  | ETA 1s         [=====================================>  ]  93%  114951/123603  | 10932.9 it/s  | ETA 1s         [=====================================>  ]  94%  116187/123603  | 10972.7 it/s  | ETA 1s         [======================================> ]  95%  117423/123603  | 11006.8 it/s  | ETA 1s         [======================================> ]  96%  118659/123603  | 11035.2 it/s  | ETA 0s         [======================================> ]  97%  119895/123603  | 10975.9 it/s  | ETA 0s         [=======================================>]  98%  121131/123603  | 10885.1 it/s  | ETA 0s         [=======================================>]  99%  122367/123603  | 10486.4 it/s  | ETA 0s         [========================================] 100%  123603/123603  | 10165.8 it/s  | ETA 0s         
+DP value: 81744
+r: 30 obj: 17938
+Approximation certificate: multiplicative factor: 7.22482
+diploid_dp_approximation_solver took 12217 ms
+recombinations in P1: 10, recombinations in P2: 20, bp of P1: 5005284, bp of P2: 4999378
+Diploid sequences written to: OUT_HG002_R30
+[M::main] PHI Version: 1.0
+[M::main] CMD: ./DipGenie -t1 -p2 -R30 -g test/MHC_4.gfa.gz -r test/HG002.mhc.2x.fq.gz -o OUT_HG002_R30
+[M::main] Real time: 59.320 sec; CPU: 59.304 sec; Peak RSS: 2.436 GB
+------------------------------------------------
+Running: ./DipGenie -t1 -p2 -R18 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o OUT_CHM13_R18
+[M::main::0.106*1.01] Loaded graph from: test/MHC_4.gfa.gz
+Number of Minimizers
+CHM13.0 : 471226
+HG002.1 : 483005
+HG002.2 : 474157
+HG005.1 : 479033
+HG005.2 : 479135
+[M::compute_and_classify_anchors::8.142*1.00] Indexed reads with spectrum size: 138834
+Number of Anchors
+CHM13.0 : 23673
+HG002.1 : 11762
+HG002.2 : 13757
+HG005.1 : 10374
+HG005.2 : 11677
+Classifying kmers...
+[M::compute_and_classify_anchors] Fitted model: best NLL=87376.61, u_v=1.00 (hom mean), sd_v=0.50 (hom SD), var_w=0.71, p_d=0.10, zp_copy=4.00, zp_copy_het=1.01, err_shape=4.00, max_copy=10
+[M::compute_and_classify_anchors] Phasing done. Homozygous: 15.38%, Heterozygous: 84.62%, Total kmers: 138834
+Creating hetro/hom-zygous colors per vertex lists
+Running DP
+[>                                       ]   0%  2/120363  | 169305.0 it/s  | ETA 1s         [>                                       ]   1%  1204/120363  | 11593.7 it/s  | ETA 10s         [>                                       ]   2%  2408/120363  | 14824.2 it/s  | ETA 8s         [=>                                      ]   3%  3611/120363  | 14380.7 it/s  | ETA 8s         [=>                                      ]   4%  4815/120363  | 14454.9 it/s  | ETA 8s         [==>                                     ]   5%  6019/120363  | 14637.7 it/s  | ETA 8s         [==>                                     ]   6%  7222/120363  | 15636.4 it/s  | ETA 7s         [==>                                     ]   7%  8426/120363  | 15881.9 it/s  | ETA 7s         [===>                                    ]   8%  9630/120363  | 14713.2 it/s  | ETA 8s         [===>                                    ]   9%  10833/120363  | 14012.9 it/s  | ETA 8s         [====>                                   ]  10%  12037/120363  | 14901.0 it/s  | ETA 7s         [====>                                   ]  11%  13240/120363  | 15663.7 it/s  | ETA 7s         [====>                                   ]  12%  14444/120363  | 16509.6 it/s  | ETA 6s         [=====>                                  ]  13%  15648/120363  | 17181.8 it/s  | ETA 6s         [=====>                                  ]  14%  16851/120363  | 17943.7 it/s  | ETA 6s         [======>                                 ]  15%  18055/120363  | 18658.3 it/s  | ETA 5s         [======>                                 ]  16%  19259/120363  | 19091.2 it/s  | ETA 5s         [======>                                 ]  17%  20462/120363  | 18911.6 it/s  | ETA 5s         [=======>                                ]  18%  21666/120363  | 18973.5 it/s  | ETA 5s         [=======>                                ]  19%  22869/120363  | 17298.4 it/s  | ETA 6s         [========>                               ]  20%  24073/120363  | 17520.3 it/s  | ETA 5s         [========>                               ]  21%  25277/120363  | 17550.7 it/s  | ETA 5s         [========>                               ]  22%  26480/120363  | 16141.1 it/s  | ETA 6s         [=========>                              ]  23%  27684/120363  | 15984.2 it/s  | ETA 6s         [=========>                              ]  24%  28888/120363  | 15439.2 it/s  | ETA 6s         [==========>                             ]  25%  30091/120363  | 15611.7 it/s  | ETA 6s         [==========>                             ]  26%  31295/120363  | 15856.5 it/s  | ETA 6s         [==========>                             ]  27%  32499/120363  | 16123.6 it/s  | ETA 5s         [===========>                            ]  28%  33702/120363  | 16445.1 it/s  | ETA 5s         [===========>                            ]  29%  34906/120363  | 16573.7 it/s  | ETA 5s         [============>                           ]  30%  36109/120363  | 16734.5 it/s  | ETA 5s         [============>                           ]  31%  37313/120363  | 16984.2 it/s  | ETA 5s         [============>                           ]  32%  38517/120363  | 17286.6 it/s  | ETA 5s         [=============>                          ]  33%  39720/120363  | 17579.2 it/s  | ETA 5s         [=============>                          ]  34%  40924/120363  | 17614.3 it/s  | ETA 5s         [==============>                         ]  35%  42128/120363  | 17845.4 it/s  | ETA 4s         [==============>                         ]  36%  43331/120363  | 18088.3 it/s  | ETA 4s         [==============>                         ]  37%  44535/120363  | 18352.6 it/s  | ETA 4s         [===============>                        ]  38%  45738/120363  | 18683.6 it/s  | ETA 4s         [===============>                        ]  39%  46942/120363  | 18921.4 it/s  | ETA 4s         [================>                       ]  40%  48146/120363  | 19037.0 it/s  | ETA 4s         [================>                       ]  41%  49349/120363  | 19081.4 it/s  | ETA 4s         [================>                       ]  42%  50553/120363  | 19235.4 it/s  | ETA 4s         [=================>                      ]  43%  51757/120363  | 19284.3 it/s  | ETA 4s         [=================>                      ]  44%  52960/120363  | 18980.5 it/s  | ETA 4s         [==================>                     ]  45%  54164/120363  | 17376.1 it/s  | ETA 4s         [==================>                     ]  46%  55367/120363  | 16389.4 it/s  | ETA 4s         [==================>                     ]  47%  56571/120363  | 15992.3 it/s  | ETA 4s         [===================>                    ]  48%  57775/120363  | 16040.6 it/s  | ETA 4s         [===================>                    ]  49%  58978/120363  | 16060.4 it/s  | ETA 4s         [====================>                   ]  50%  60182/120363  | 16013.2 it/s  | ETA 4s         [====================>                   ]  51%  61386/120363  | 16121.0 it/s  | ETA 4s         [====================>                   ]  52%  62589/120363  | 16297.8 it/s  | ETA 4s         [=====================>                  ]  53%  63793/120363  | 16529.2 it/s  | ETA 3s         [=====================>                  ]  54%  64997/120363  | 16734.1 it/s  | ETA 3s         [======================>                 ]  55%  66200/120363  | 16954.1 it/s  | ETA 3s         [======================>                 ]  56%  67404/120363  | 17165.9 it/s  | ETA 3s         [======================>                 ]  57%  68607/120363  | 17377.9 it/s  | ETA 3s         [=======================>                ]  58%  69811/120363  | 17557.9 it/s  | ETA 3s         [=======================>                ]  59%  71015/120363  | 17771.0 it/s  | ETA 3s         [========================>               ]  60%  72218/120363  | 17944.6 it/s  | ETA 3s         [========================>               ]  61%  73422/120363  | 18138.4 it/s  | ETA 3s         [========================>               ]  62%  74626/120363  | 18357.5 it/s  | ETA 2s         [=========================>              ]  63%  75829/120363  | 18594.3 it/s  | ETA 2s         [=========================>              ]  64%  77033/120363  | 18796.4 it/s  | ETA 2s         [==========================>             ]  65%  78236/120363  | 18960.9 it/s  | ETA 2s         [==========================>             ]  66%  79440/120363  | 19145.2 it/s  | ETA 2s         [==========================>             ]  67%  80644/120363  | 19312.5 it/s  | ETA 2s         [===========================>            ]  68%  81847/120363  | 19497.3 it/s  | ETA 2s         [===========================>            ]  69%  83051/120363  | 19674.0 it/s  | ETA 2s         [============================>           ]  70%  84255/120363  | 19838.6 it/s  | ETA 2s         [============================>           ]  71%  85458/120363  | 20012.5 it/s  | ETA 2s         [============================>           ]  72%  86662/120363  | 20163.0 it/s  | ETA 2s         [=============================>          ]  73%  87865/120363  | 20257.4 it/s  | ETA 2s         [=============================>          ]  74%  89069/120363  | 20414.8 it/s  | ETA 2s         [==============================>         ]  75%  90273/120363  | 20597.0 it/s  | ETA 1s         [==============================>         ]  76%  91476/120363  | 20748.5 it/s  | ETA 1s         [==============================>         ]  77%  92680/120363  | 20919.6 it/s  | ETA 1s         [===============================>        ]  78%  93884/120363  | 21096.8 it/s  | ETA 1s         [===============================>        ]  79%  95087/120363  | 21257.5 it/s  | ETA 1s         [================================>       ]  80%  96291/120363  | 21374.7 it/s  | ETA 1s         [================================>       ]  81%  97495/120363  | 21493.6 it/s  | ETA 1s         [================================>       ]  82%  98698/120363  | 21645.9 it/s  | ETA 1s         [=================================>      ]  83%  99902/120363  | 21803.2 it/s  | ETA 1s         [=================================>      ]  84%  101105/120363  | 21965.9 it/s  | ETA 1s         [==================================>     ]  85%  102309/120363  | 22095.7 it/s  | ETA 1s         [==================================>     ]  86%  103513/120363  | 22202.1 it/s  | ETA 1s         [==================================>     ]  87%  104716/120363  | 22277.4 it/s  | ETA 1s         [===================================>    ]  88%  105920/120363  | 22262.9 it/s  | ETA 1s         [===================================>    ]  89%  107124/120363  | 22370.9 it/s  | ETA 1s         [====================================>   ]  90%  108327/120363  | 22452.4 it/s  | ETA 1s         [====================================>   ]  91%  109531/120363  | 22527.7 it/s  | ETA 0s         [====================================>   ]  92%  110734/120363  | 22597.0 it/s  | ETA 0s         [=====================================>  ]  93%  111938/120363  | 22602.5 it/s  | ETA 0s         [=====================================>  ]  94%  113142/120363  | 22539.4 it/s  | ETA 0s         [======================================> ]  95%  114345/120363  | 22635.6 it/s  | ETA 0s         [======================================> ]  96%  115549/120363  | 22740.3 it/s  | ETA 0s         [======================================> ]  97%  116753/120363  | 22813.4 it/s  | ETA 0s         [=======================================>]  98%  117956/120363  | 22787.4 it/s  | ETA 0s         [=======================================>]  99%  119160/120363  | 22401.2 it/s  | ETA 0s         [========================================] 100%  120363/120363  | 22134.3 it/s  | ETA 0s         
+DP value: 60742
+r: 18 obj: 5183
+Approximation certificate: multiplicative factor: 13.9385
+diploid_dp_approximation_solver took 5481 ms
+recombinations in P1: 17, recombinations in P2: 1, bp of P1: 5004209, bp of P2: 4920284
+Diploid sequences written to: OUT_CHM13_R18
+[M::main] PHI Version: 1.0
+[M::main] CMD: ./DipGenie -t1 -p2 -R18 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o OUT_CHM13_R18
+[M::main] Real time: 25.603 sec; CPU: 25.570 sec; Peak RSS: 1.380 GB
+------------------------------------------------
+Running: ./DipGenie -t1 -p2 -R30 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o OUT_CHM13_R30
+[M::main::0.108*1.01] Loaded graph from: test/MHC_4.gfa.gz
+Number of Minimizers
+CHM13.0 : 471226
+HG002.1 : 483005
+HG002.2 : 474157
+HG005.1 : 479033
+HG005.2 : 479135
+[M::compute_and_classify_anchors::7.962*1.00] Indexed reads with spectrum size: 138834
+Number of Anchors
+CHM13.0 : 23673
+HG002.1 : 11762
+HG002.2 : 13757
+HG005.1 : 10374
+HG005.2 : 11677
+Classifying kmers...
+[M::compute_and_classify_anchors] Fitted model: best NLL=87376.61, u_v=1.00 (hom mean), sd_v=0.50 (hom SD), var_w=0.71, p_d=0.10, zp_copy=4.00, zp_copy_het=1.01, err_shape=4.00, max_copy=10
+[M::compute_and_classify_anchors] Phasing done. Homozygous: 15.38%, Heterozygous: 84.62%, Total kmers: 138834
+Creating hetro/hom-zygous colors per vertex lists
+Running DP
+[>                                       ]   0%  2/120363  | 129726.9 it/s  | ETA 1s         [>                                       ]   1%  1204/120363  | 7222.0 it/s  | ETA 16s         [>                                       ]   2%  2408/120363  | 9127.5 it/s  | ETA 13s         [=>                                      ]   3%  3611/120363  | 8957.2 it/s  | ETA 13s         [=>                                      ]   4%  4815/120363  | 9013.9 it/s  | ETA 13s         [==>                                     ]   5%  6019/120363  | 9083.2 it/s  | ETA 13s         [==>                                     ]   6%  7222/120363  | 9759.2 it/s  | ETA 12s         [==>                                     ]   7%  8426/120363  | 9921.5 it/s  | ETA 11s         [===>                                    ]   8%  9630/120363  | 9096.6 it/s  | ETA 12s         [===>                                    ]   9%  10833/120363  | 8637.1 it/s  | ETA 13s         [====>                                   ]  10%  12037/120363  | 9200.3 it/s  | ETA 12s         [====>                                   ]  11%  13240/120363  | 9681.9 it/s  | ETA 11s         [====>                                   ]  12%  14444/120363  | 10224.0 it/s  | ETA 10s         [=====>                                  ]  13%  15648/120363  | 10652.3 it/s  | ETA 10s         [=====>                                  ]  14%  16851/120363  | 11136.0 it/s  | ETA 9s         [======>                                 ]  15%  18055/120363  | 11592.7 it/s  | ETA 9s         [======>                                 ]  16%  19259/120363  | 11880.8 it/s  | ETA 9s         [======>                                 ]  17%  20462/120363  | 11743.3 it/s  | ETA 9s         [=======>                                ]  18%  21666/120363  | 11794.9 it/s  | ETA 8s         [=======>                                ]  19%  22869/120363  | 10597.8 it/s  | ETA 9s         [========>                               ]  20%  24073/120363  | 10750.0 it/s  | ETA 9s         [========>                               ]  21%  25277/120363  | 10761.0 it/s  | ETA 9s         [========>                               ]  22%  26480/120363  | 9847.6 it/s  | ETA 10s         [=========>                              ]  23%  27684/120363  | 9753.5 it/s  | ETA 10s         [=========>                              ]  24%  28888/120363  | 9394.1 it/s  | ETA 10s         [==========>                             ]  25%  30091/120363  | 9508.1 it/s  | ETA 9s         [==========>                             ]  26%  31295/120363  | 9665.6 it/s  | ETA 9s         [==========>                             ]  27%  32499/120363  | 9834.5 it/s  | ETA 9s         [===========>                            ]  28%  33702/120363  | 10049.0 it/s  | ETA 9s         [===========>                            ]  29%  34906/120363  | 10134.1 it/s  | ETA 8s         [============>                           ]  30%  36109/120363  | 10238.0 it/s  | ETA 8s         [============>                           ]  31%  37313/120363  | 10401.3 it/s  | ETA 8s         [============>                           ]  32%  38517/120363  | 10593.6 it/s  | ETA 8s         [=============>                          ]  33%  39720/120363  | 10779.9 it/s  | ETA 7s         [=============>                          ]  34%  40924/120363  | 10807.7 it/s  | ETA 7s         [==============>                         ]  35%  42128/120363  | 10954.9 it/s  | ETA 7s         [==============>                         ]  36%  43331/120363  | 11109.3 it/s  | ETA 7s         [==============>                         ]  37%  44535/120363  | 11278.1 it/s  | ETA 7s         [===============>                        ]  38%  45738/120363  | 11485.7 it/s  | ETA 6s         [===============>                        ]  39%  46942/120363  | 11636.7 it/s  | ETA 6s         [================>                       ]  40%  48146/120363  | 11711.3 it/s  | ETA 6s         [================>                       ]  41%  49349/120363  | 11749.2 it/s  | ETA 6s         [================>                       ]  42%  50553/120363  | 11847.3 it/s  | ETA 6s         [=================>                      ]  43%  51757/120363  | 11877.7 it/s  | ETA 6s         [=================>                      ]  44%  52960/120363  | 11682.2 it/s  | ETA 6s         [==================>                     ]  45%  54164/120363  | 10634.8 it/s  | ETA 6s         [==================>                     ]  46%  55367/120363  | 9988.8 it/s  | ETA 7s         [==================>                     ]  47%  56571/120363  | 9728.4 it/s  | ETA 7s         [===================>                    ]  48%  57775/120363  | 9762.0 it/s  | ETA 6s         [===================>                    ]  49%  58978/120363  | 9778.7 it/s  | ETA 6s         [====================>                   ]  50%  60182/120363  | 9748.5 it/s  | ETA 6s         [====================>                   ]  51%  61386/120363  | 9811.7 it/s  | ETA 6s         [====================>                   ]  52%  62589/120363  | 9924.5 it/s  | ETA 6s         [=====================>                  ]  53%  63793/120363  | 10068.8 it/s  | ETA 6s         [=====================>                  ]  54%  64997/120363  | 10196.6 it/s  | ETA 5s         [======================>                 ]  55%  66200/120363  | 10333.7 it/s  | ETA 5s         [======================>                 ]  56%  67404/120363  | 10466.2 it/s  | ETA 5s         [======================>                 ]  57%  68607/120363  | 10598.2 it/s  | ETA 5s         [=======================>                ]  58%  69811/120363  | 10712.6 it/s  | ETA 5s         [=======================>                ]  59%  71015/120363  | 10846.2 it/s  | ETA 5s         [========================>               ]  60%  72218/120363  | 10955.2 it/s  | ETA 4s         [========================>               ]  61%  73422/120363  | 11077.2 it/s  | ETA 4s         [========================>               ]  62%  74626/120363  | 11213.0 it/s  | ETA 4s         [=========================>              ]  63%  75829/120363  | 11359.8 it/s  | ETA 4s         [=========================>              ]  64%  77033/120363  | 11485.7 it/s  | ETA 4s         [==========================>             ]  65%  78236/120363  | 11589.8 it/s  | ETA 4s         [==========================>             ]  66%  79440/120363  | 11705.8 it/s  | ETA 3s         [==========================>             ]  67%  80644/120363  | 11820.2 it/s  | ETA 3s         [===========================>            ]  68%  81847/120363  | 11934.8 it/s  | ETA 3s         [===========================>            ]  69%  83051/120363  | 12046.5 it/s  | ETA 3s         [============================>           ]  70%  84255/120363  | 12149.1 it/s  | ETA 3s         [============================>           ]  71%  85458/120363  | 12258.5 it/s  | ETA 3s         [============================>           ]  72%  86662/120363  | 12354.5 it/s  | ETA 3s         [=============================>          ]  73%  87865/120363  | 12419.7 it/s  | ETA 3s         [=============================>          ]  74%  89069/120363  | 12519.5 it/s  | ETA 2s         [==============================>         ]  75%  90273/120363  | 12634.0 it/s  | ETA 2s         [==============================>         ]  76%  91476/120363  | 12730.9 it/s  | ETA 2s         [==============================>         ]  77%  92680/120363  | 12839.3 it/s  | ETA 2s         [===============================>        ]  78%  93884/120363  | 12951.0 it/s  | ETA 2s         [===============================>        ]  79%  95087/120363  | 13053.5 it/s  | ETA 2s         [================================>       ]  80%  96291/120363  | 13129.2 it/s  | ETA 2s         [================================>       ]  81%  97495/120363  | 13207.9 it/s  | ETA 2s         [================================>       ]  82%  98698/120363  | 13305.6 it/s  | ETA 2s         [=================================>      ]  83%  99902/120363  | 13397.4 it/s  | ETA 2s         [=================================>      ]  84%  101105/120363  | 13500.9 it/s  | ETA 1s         [==================================>     ]  85%  102309/120363  | 13589.4 it/s  | ETA 1s         [==================================>     ]  86%  103513/120363  | 13660.0 it/s  | ETA 1s         [==================================>     ]  87%  104716/120363  | 13710.4 it/s  | ETA 1s         [===================================>    ]  88%  105920/120363  | 13701.3 it/s  | ETA 1s         [===================================>    ]  89%  107124/120363  | 13770.5 it/s  | ETA 1s         [====================================>   ]  90%  108327/120363  | 13823.7 it/s  | ETA 1s         [====================================>   ]  91%  109531/120363  | 13878.7 it/s  | ETA 1s         [====================================>   ]  92%  110734/120363  | 13929.6 it/s  | ETA 1s         [=====================================>  ]  93%  111938/120363  | 13937.8 it/s  | ETA 1s         [=====================================>  ]  94%  113142/120363  | 13899.1 it/s  | ETA 1s         [======================================> ]  95%  114345/120363  | 13961.4 it/s  | ETA 0s         [======================================> ]  96%  115549/120363  | 14028.8 it/s  | ETA 0s         [======================================> ]  97%  116753/120363  | 14075.3 it/s  | ETA 0s         [=======================================>]  98%  117956/120363  | 14061.0 it/s  | ETA 0s         [=======================================>]  99%  119160/120363  | 13795.2 it/s  | ETA 0s         [========================================] 100%  120363/120363  | 13621.8 it/s  | ETA 0s         
+DP value: 61094
+r: 30 obj: 5403
+Approximation certificate: multiplicative factor: 13.5382
+diploid_dp_approximation_solver took 8881 ms
+recombinations in P1: 28, recombinations in P2: 2, bp of P1: 5004408, bp of P2: 4920306
+Diploid sequences written to: OUT_CHM13_R30
+[M::main] PHI Version: 1.0
+[M::main] CMD: ./DipGenie -t1 -p2 -R30 -g test/MHC_4.gfa.gz -r test/CHM13_reads.fq.gz -o OUT_CHM13_R30
+[M::main] Real time: 28.844 sec; CPU: 28.813 sec; Peak RSS: 1.831 GB
+------------------------------------------------
+Running: ./DipGenie -t1 -p2 -R10 -g test/test.gfa -r test/read.fa -o OUT_toy_p2
+[M::main::0.000*43.90] Loaded graph from: test/test.gfa
+Number of Minimizers
+test_hap_1.0 : 0
+test_hap_2.1 : 0
+test_hap_3.2 : 0
+test_hap_4.3 : 0
+test_hap_4.4 : 0
+[M::compute_and_classify_anchors::0.000*15.18] Indexed reads with spectrum size: 0
+Number of Anchors
+test_hap_1.0 : 0
+test_hap_2.1 : 0
+test_hap_3.2 : 0
+test_hap_4.3 : 0
+test_hap_4.4 : 0
+Classifying kmers...
+[M::compute_and_classify_anchors] Fitted model: best NLL=0.00, u_v=1.00 (hom mean), sd_v=0.50 (hom SD), var_w=0.71, p_d=0.10, zp_copy=1.01, zp_copy_het=1.01, err_shape=1.01, max_copy=10
+[M::compute_and_classify_anchors] Phasing done. Homozygous: 0.00%, Heterozygous: 0.00%, Total kmers: 0
+Creating hetro/hom-zygous colors per vertex lists
+Running DP
+[====>                                   ]  11%  1/9  | 679347.8 it/s  | ETA 0s         [========>                               ]  22%  2/9  | 30384.1 it/s  | ETA 0s         [=============>                          ]  33%  3/9  | 33245.8 it/s  | ETA 0s         [=================>                      ]  44%  4/9  | 40475.2 it/s  | ETA 0s         [======================>                 ]  55%  5/9  | 47975.9 it/s  | ETA 0s         [==========================>             ]  66%  6/9  | 43478.3 it/s  | ETA 0s         [===============================>        ]  77%  7/9  | 47884.2 it/s  | ETA 0s         [===================================>    ]  88%  8/9  | 53081.0 it/s  | ETA 0s         [========================================] 100%  9/9  | 57957.2 it/s  | ETA 0s         
+DP value: 0
+r: 10 obj: 0
+Approximation certificate: multiplicative factor: -nan
+diploid_dp_approximation_solver took 0 ms
+recombinations in P1: 2, recombinations in P2: 2, bp of P1: 19, bp of P2: 19
+Diploid sequences written to: OUT_toy_p2
+[M::main] PHI Version: 1.0
+[M::main] CMD: ./DipGenie -t1 -p2 -R10 -g test/test.gfa -r test/read.fa -o OUT_toy_p2
+[M::main] Real time: 0.413 sec; CPU: 0.415 sec; Peak RSS: 0.005 GB

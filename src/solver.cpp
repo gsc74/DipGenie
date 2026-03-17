@@ -363,11 +363,11 @@ std::vector<std::pair<uint64_t, Anchor>> Solver::index_kmers(int32_t hap) {
 }
 
 
-std::set<uint64_t> Solver::compute_hashes(std::string &read_seq) {
+std::vector<uint64_t> Solver::compute_hashes(std::string &read_seq) {
     // Convert to uppercase
     std::transform(read_seq.begin(), read_seq.end(), read_seq.begin(), ::toupper);
 
-    std::set<uint64_t> read_hashes;
+    std::vector<uint64_t> read_hashes;
     int32_t seq_size = read_seq.size();
     if (seq_size < window + k_mer - 1) return read_hashes;
 
@@ -402,19 +402,20 @@ std::set<uint64_t> Solver::compute_hashes(std::string &read_seq) {
             std::string best_kmer = window_deque.front().first;
             uint64_t best_hash = hash128_to_64_(best_kmer.c_str());
             if (best_hash != prev_hash) {
-                read_hashes.insert(best_hash);
+                read_hashes.push_back(best_hash);
                 prev_hash = best_hash;
             }
         }
     }
 
+    std::sort(read_hashes.begin(), read_hashes.end());
+    read_hashes.erase(std::unique(read_hashes.begin(), read_hashes.end()), read_hashes.end());
     return read_hashes;
 }
 
 
-std::vector<std::vector<std::vector<int32_t>>> Solver::compute_anchors(std::vector<std::pair<uint64_t, Anchor>> &minimizers, std::map<uint64_t, int32_t> &read_hashes)
+void Solver::compute_anchors(std::vector<std::pair<uint64_t, Anchor>> &minimizers, std::unordered_map<uint64_t, int32_t> &read_hashes, std::vector<std::vector<std::vector<std::vector<int32_t>>>> &Anchor_hits, int32_t h)
 {
-    std::vector<std::vector<std::vector<int32_t>>> anchors;
     std::vector<std::vector<std::pair<int32_t, std::vector<int32_t>>>> local_anchors(num_threads);
     #pragma omp parallel for num_threads(num_threads)
     for (int64_t i = 0; i < minimizers.size(); i++)
@@ -422,27 +423,26 @@ std::vector<std::vector<std::vector<int32_t>>> Solver::compute_anchors(std::vect
         int32_t tid = omp_get_thread_num();
         auto minimizer  = minimizers[i];
         auto hash = minimizer.first;
-        if (read_hashes.find(hash) != read_hashes.end()) // Found a match
+        auto it = read_hashes.find(hash);
+        if (it != read_hashes.end()) // Found a match
         {
             std::vector<int32_t> anchor;
             for (size_t j = 0; j < minimizer.second.k_mers.size(); j++)
             {
                 anchor.push_back(minimizer.second.k_mers[j]);
             }
-            local_anchors[tid].push_back(std::make_pair(read_hashes[hash], anchor)); // id, anchor
+            local_anchors[tid].push_back(std::make_pair(it->second, anchor)); // id, anchor
         }
     }
 
-    anchors.resize(read_hashes.size());
     for (int32_t i = 0; i < num_threads; i++)
     {
         for (auto anchor: local_anchors[i])
         {
-            anchors[anchor.first].push_back(anchor.second);  // (id -> anchor_path)
+            Anchor_hits[anchor.first][h].push_back(anchor.second);  // (id -> anchor_path)
         }
     }
     local_anchors.clear();
-    return anchors;
 }
 
 
@@ -523,8 +523,8 @@ void Solver::compute_and_classify_anchors(std::vector<std::pair<std::string, std
 
     // Compute the anchors
     int64_t num_kmers = 0;
-    std::vector<std::set<uint64_t>> Read_hashes(num_reads);
-    std::map<uint64_t, int32_t> Sp_R;
+    std::vector<std::vector<uint64_t>> Read_hashes(num_reads);
+    std::unordered_map<uint64_t, int32_t> Sp_R;
     #pragma omp parallel for num_threads(num_threads)
     for (int32_t r = 0; r < num_reads; r++)
     {
@@ -549,7 +549,7 @@ void Solver::compute_and_classify_anchors(std::vector<std::pair<std::string, std
     //Read_hashes.clear();
 
     // get a map id -> hash
-    std::map<int32_t, uint64_t> Sp_R_hash;
+    std::unordered_map<int32_t, uint64_t> Sp_R_hash;
     for (const auto& hash_pair : Sp_R) {
         Sp_R_hash[hash_pair.second] = hash_pair.first; // map_id -> hash
     }
@@ -558,20 +558,11 @@ void Solver::compute_and_classify_anchors(std::vector<std::pair<std::string, std
     fprintf(stderr, "[M::%s::%.3f*%.2f] Indexed reads with spectrum size: %d\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0), Sp_R.size());
 
     Anchor_hits.assign(Sp_R.size(), std::vector<std::vector<std::vector<int32_t>>>(num_walks));
-    std::vector<int32_t> count_anchors_hap(num_walks, 0);
     // compute the anchors
     for (int32_t h = 0; h < num_walks; h++)
     {
         // if (paths[h].size() == 0) continue;
-        std::vector<std::vector<std::vector<int32_t>>> loc_match = compute_anchors(kmer_index[h], Sp_R); // parallel execution
-        for (int32_t r = 0; r < Sp_R.size(); r++)
-        {
-            for (auto anchor: loc_match[r])
-            {
-                Anchor_hits[r][h].push_back(anchor);
-            }
-            if (loc_match[r].size() > 0) count_anchors_hap[h]++; // count the number of unique anchors
-        } 
+        compute_anchors(kmer_index[h], Sp_R, Anchor_hits, h); // parallel execution
     }
     Sp_R.clear();
 
@@ -592,23 +583,18 @@ void Solver::compute_and_classify_anchors(std::vector<std::pair<std::string, std
     std::vector<int64_t> filtered_kmers_vec(num_threads, 0);
     #pragma omp parallel for num_threads(num_threads)
     for (int32_t r = 0; r < count_sp_r; r++) {
-        std::map<std::string, std::pair<int32_t, std::vector<std::pair<int32_t, std::vector<int32_t>>>>> Anchor_hits_map;
+        std::map<std::vector<int32_t>, std::pair<int32_t, std::vector<std::pair<int32_t, std::vector<int32_t>>>>> Anchor_hits_map;
 
         for (int32_t h = 0; h < num_walks; h++) {
             if (paths[h].size() == 0) continue;
             for (int32_t k = 0; k < Anchor_hits[r][h].size(); k++) {
-                std::string anchor_str;
-                for (auto v : Anchor_hits[r][h][k]) {
-                    anchor_str += std::to_string(v) + "_";
-                }
-
-                if (Anchor_hits_map.find(anchor_str) == Anchor_hits_map.end()) { // does not exist
-                    Anchor_hits_map[anchor_str].first = 1;
-                    Anchor_hits_map[anchor_str].second.push_back(std::make_pair(h, Anchor_hits[r][h][k]));
-                } else {
-                    Anchor_hits_map[anchor_str].first++;
-                    Anchor_hits_map[anchor_str].second.push_back(std::make_pair(h, Anchor_hits[r][h][k]));
-                }
+                const auto &anchor_vec = Anchor_hits[r][h][k];
+                auto [it, inserted] = Anchor_hits_map.emplace(
+                    anchor_vec,
+                    std::make_pair(0, std::vector<std::pair<int32_t, std::vector<int32_t>>>{})
+                );
+                it->second.first++;
+                it->second.second.push_back(std::make_pair(h, anchor_vec));
             }
         }
 
@@ -865,13 +851,13 @@ void Solver::compute_and_classify_anchors(std::vector<std::pair<std::string, std
             homo_bv[kmer_idx] = 1;
             for(int h = 0; h < num_walks; h++){
                 auto &out = Anchor_hits_homo[kmer_idx][h];
-                out.insert(out.end(), Anchor_hits[kmer_idx][h].begin(), Anchor_hits[kmer_idx][h].end());
+                out = Anchor_hits[kmer_idx][h];
             }
             count_homo++;
         }else{
             for(int h = 0; h < num_walks; h++){
                 auto &out = Anchor_hits_hetero[kmer_idx][h];
-                out.insert(out.end(), Anchor_hits[kmer_idx][h].begin(), Anchor_hits[kmer_idx][h].end());
+                out = Anchor_hits[kmer_idx][h];
             }
             count_hetero++;
         }
@@ -885,4 +871,3 @@ void Solver::compute_and_classify_anchors(std::vector<std::pair<std::string, std
         __func__, frac_h*100, frac_he*100, count_homo+count_hetero);
 
 }
-

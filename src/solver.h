@@ -98,8 +98,8 @@ class Solver {
         void read_ip_reads(std::vector<std::pair<std::string, std::string>> &ip_reads, std::string ip_reads_file);
         void compute_and_classify_anchors(std::vector<std::pair<std::string, std::string>> &full_ip_reads);
         std::vector<std::pair<uint64_t, Anchor>> index_kmers(int32_t hap);
-        std::set<uint64_t> compute_hashes(std::string &read_seq);
-        std::vector<std::vector<std::vector<int32_t>>> compute_anchors(std::vector<std::pair<uint64_t, Anchor>> &minimizers, std::map<uint64_t, int32_t> &read_hashes);
+        std::vector<uint64_t> compute_hashes(std::string &read_seq);
+        void compute_anchors(std::vector<std::pair<uint64_t, Anchor>> &minimizers, std::unordered_map<uint64_t, int32_t> &read_hashes, std::vector<std::vector<std::vector<std::vector<int32_t>>>> &Anchor_hits, int32_t h);
         std::vector<uint64_t> compute_minimizer_hits(std::vector<uint64_t> &minimizers, std::map<uint64_t, int32_t> &read_hashes);
         virtual ~Solver() = default; 
 };
