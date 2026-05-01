@@ -1,9 +1,7 @@
-<div align="center">
-  <!-- <img src="test/logo/logo_dg.png" alt="DipGenie Logo" width="200"> -->
-</div>
+[![BioConda Install](https://img.shields.io/conda/dn/bioconda/dipgenie?label=BioConda%20Installs)](https://anaconda.org/bioconda/dipgenie)
+
 
 ## <div align="center"><span style="color:red;"><b>DipGenie</b></span> (<span style="color:red;"><b>D</b></span>iploid <span style="color:red;"><b>G</b></span>enome <span style="color:red;"><b>i</b></span>nference)</div>
-
 
 ## <a name="started"></a>Getting Started
 
