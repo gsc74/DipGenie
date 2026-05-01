@@ -51,10 +51,6 @@ The sample list is defined directly in each `run_tool.sh` script.
 - **numactl** (for NUMA-aware execution)
 - Python 3 with standard libraries
 
-### Hardware
-
-All scripts are configured for 128 threads with NUMA node 0 binding. Adjust `THREADS` and `numactl` flags if your system differs.
-
 ## Workflow (per tool)
 
 Each tool folder contains independent scripts to be run in order:
@@ -104,7 +100,7 @@ Produces CSV files in `output/` (F1, Precision, Recall, SER, Mismatch).
 |-------|-------------|
 | 1x | ~1x coverage of MHC region |
 | 2x | ~2x coverage of MHC region |
-| Total | Full coverage (~30x) |
+| Total | Full coverage (max: ~12x) |
 
 ## Notes
 
@@ -113,6 +109,3 @@ Produces CSV files in `output/` (F1, Precision, Recall, SER, Mismatch).
 - All scripts assume they are run from within their respective tool folder.
 - The `prepare_data.sh` script must be run first to unpack data into the shared directories.
 
-## Citation
-
-If you use this workflow, please cite our paper (reference TBD).
