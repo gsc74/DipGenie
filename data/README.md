@@ -8,8 +8,8 @@ This repository contains scripts to reproduce the benchmarks in our paper compar
 |--------|--------|
 | `DipGenie/` | DipGenie (graph-based diplotype assembly) |
 | `VG/` | vg haplotypes (graph-based haplotype sampling) |
-| `Paragraph + Beagle/` | Paragraph SV genotyping + Beagle phasing/imputation |
-| `PanGenie + Beagle/` | PanGenie genotyping + Beagle phasing (no imputation) |
+| `Paragraph + Beagle/` | Paragraph SV genotyping + Beagle phasing |
+| `PanGenie + Beagle/` | PanGenie genotyping + Beagle phasing |
 
 ## Data
 
