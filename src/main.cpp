@@ -1,7 +1,7 @@
 #include <iostream>
 #include <stdlib.h>
 #include "gfa-priv.h"
-#include "PHIpriv.h"
+#include "DipGeniePriv.h"
 #include "ketopt.h"
 #include <zlib.h>
 #include "ILP_index.h"
@@ -82,13 +82,13 @@ int main(int argc, char *argv[]) {
         else if (c == 'd') debug = atoi(o.arg);
         else if (c == 'h') help = 1;
         else if (c == 300) {
-            fprintf(fp_help, "PHI version: %s\n", PHI_VERSION);
+            fprintf(fp_help, "DipGenie version: %s\n", DIPGENIE_VERSION);
             return 0;
         }
 	}
 
 	if (argv[1] == NULL || opt.gfa_file == "" || opt.reads_file == "" || opt.hap_file == "" || help == 1 || fp_help == stdout) {
-		fprintf(fp_help, "Usage: PHI -g <target.gfa> -r <reads.fa> -o <haplotype.fasta> \n");
+		fprintf(fp_help, "Usage: DipGenie -g <target.gfa> -r <reads.fa> -o <haplotype.fasta> \n");
 		fprintf(fp_help, "Options:\n");
         fprintf(fp_help, "    -a bool      DP approximation mode\n");
 		fprintf(fp_help, "    -k INT       K-mer size [%d]\n", ipt.k);
@@ -199,7 +199,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Print runtime statistics
-    fprintf(stderr, "[M::%s] PHI Version: %s\n", __func__, PHI_VERSION);
+    fprintf(stderr, "[M::%s] DipGenie Version: %s\n", __func__, DIPGENIE_VERSION);
     fprintf(stderr, "[M::%s] CMD:", __func__);
 		for (i = 0; i < argc; ++i)
 			fprintf(stderr, " %s", argv[i]);

@@ -1,7 +1,7 @@
 #pragma once
 #include <vector>
 #include <string>
-#include "PHIpriv.h"
+#include "DipGeniePriv.h"
 #include "ksort.h"
 
 // declare only

@@ -1,5 +1,5 @@
 #include <string.h>
-#include "PHIpriv.h"
+#include "DipGeniePriv.h"
 
 void mg_idxopt_init(mg_idxopt_t *io)
 {

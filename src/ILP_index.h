@@ -1,7 +1,7 @@
 #include <iostream>
 #include <stdlib.h>
 #include <omp.h>
-#include "PHIpriv.h"
+#include "DipGeniePriv.h"
 #include <assert.h>
 #include <math.h>
 #include "khashl.h"

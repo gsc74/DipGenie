@@ -1,8 +1,8 @@
-#ifndef PHIPRIV_H
-#define PHIPRIV_H
+#ifndef DIPGENIE_PRIV_H
+#define DIPGENIE_PRIV_H
 
 #include <stdlib.h>
-#include "PHI.h"
+#include "DipGenie.h"
 
 // by  GS
 #include <iostream>
