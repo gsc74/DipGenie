@@ -929,10 +929,12 @@ Approximator::diploid_dp_approximation_solver(
         p2_color_by_r.at(best_r) = p2_colors;
     }
 
-    // computes score and approx cert.
+    // Compute the corrected a posteriori approximation certificate.
+    // This does not change the DP transitions or the recovered solution.
     {
-        auto sink_dp_copy = at3(dp_cur, k_sink, 0, 0, best_r);
-        int s_het = sink_dp_copy.s_het;
+        const auto& sink_dp_final = at3_const(dp_cur, k_sink, 0, 0, best_r);
+        const int s_het = sink_dp_final.s_het;
+        const int s_hom = sink_dp_final.value - s_het;
 
         std::vector<int> path_1_homo_colors;
         std::vector<int> path_1_hetero_colors;
@@ -961,46 +963,140 @@ Approximator::diploid_dp_approximation_solver(
         dedup_inplace(path_2_homo_colors);
         dedup_inplace(path_2_hetero_colors);
 
-        auto intersection = intersection_sorted(path_1_homo_colors, path_2_homo_colors);
-        auto symdif = symdiff_sorted(path_1_hetero_colors, path_2_hetero_colors);
-        int intersection_count = intersection.size();
-        int symdiff_count = symdif.size();
+        const auto intersection = intersection_sorted(path_1_homo_colors, path_2_homo_colors);
+        const auto symdif = symdiff_sorted(path_1_hetero_colors, path_2_hetero_colors);
+        const int intersection_count = static_cast<int>(intersection.size());
+        const int symdiff_count = static_cast<int>(symdif.size());
 
-        int m_G_hom = 0;
-        int m_G_het = 0;
-        auto p1_color_freq = p1_color_freq_by_r[best_r];
-        auto p2_color_freq = p2_color_freq_by_r[best_r];
+        long long m_G_hom = 0;
+        long long m_G_het = 0;
+        const auto& p1_color_freq = p1_color_freq_by_r[best_r];
+        const auto& p2_color_freq = p2_color_freq_by_r[best_r];
 
         for (auto c : intersection) {
             auto it1 = p1_color_freq.find(c);
             auto it2 = p2_color_freq.find(c);
-            int k1 = (it1 == p1_color_freq.end()) ? 0 : it1->second;
-            int k2 = (it2 == p2_color_freq.end()) ? 0 : it2->second;
-            m_G_hom += (k1 >= k2 ? k1 : k2);
+            const int k1 = (it1 == p1_color_freq.end()) ? 0 : it1->second;
+            const int k2 = (it2 == p2_color_freq.end()) ? 0 : it2->second;
+            m_G_hom += std::max(k1, k2);
         }
 
         for (auto c : symdif) {
             auto it1 = p1_color_freq.find(c);
             auto it2 = p2_color_freq.find(c);
-            int k1 = (it1 == p1_color_freq.end()) ? 0 : it1->second;
-            int k2 = (it2 == p2_color_freq.end()) ? 0 : it2->second;
-            m_G_het += k1 + k2;
+            const int k1 = (it1 == p1_color_freq.end()) ? 0 : it1->second;
+            const int k2 = (it2 == p2_color_freq.end()) ? 0 : it2->second;
+            m_G_het += static_cast<long long>(k1) + k2;
         }
 
-        float m_G_hom_avg = m_G_hom / (float)intersection_count;
-        float m_G_het_avg = m_G_het / (float)symdiff_count;
-        float m_bar = std::max(m_G_hom_avg, m_G_het_avg);
+        // The manuscript uses average multiplicity 1 for an empty color set.
+        const double m_G_hom_avg = intersection_count > 0
+            ? static_cast<double>(m_G_hom) / intersection_count
+            : 1.0;
+        const double m_G_het_avg = symdiff_count > 0
+            ? static_cast<double>(m_G_het) / symdiff_count
+            : 1.0;
+        const double m_bar = std::max(m_G_hom_avg, m_G_het_avg);
 
-        int loss_het = s_het - m_G_het;
-        float additive_term = loss_het / (float)m_G_het_avg;
+        const long long ell_hom = m_G_hom - static_cast<long long>(s_hom);
+        const long long ell_het = static_cast<long long>(s_het) - m_G_het;
 
-        int obj = intersection_count + symdiff_count;
+        // Delta_hom counts homozygous colors that occur on more than one graph level.
+        // This bounds the number of distinct homozygous colors that can appear on both
+        // paths but never co-occur at a common level in an unknown optimal solution.
+        // We also retain the older level-sum quantity for diagnostics only.
+        std::vector<std::unordered_set<int>> homo_color_levels(color_homo_bv.size());
+        for (int level = 0; level < L; ++level) {
+            for (int vertex : g.vertices_in_level[level]) {
+                for (int color : g.color[vertex]) {
+                    if (color >= 0 && color < static_cast<int>(color_homo_bv.size())
+                        && color_homo_bv[color]) {
+                        homo_color_levels[color].insert(level);
+                    }
+                }
+            }
+        }
+
+        long long delta_hom = 0;
+        long long delta_hom_levelsum = 0;
+        for (std::size_t color = 0; color < homo_color_levels.size(); ++color) {
+            const std::size_t level_count = homo_color_levels[color].size();
+            if (level_count > 1) {
+                ++delta_hom;
+                delta_hom_levelsum += static_cast<long long>(level_count - 1);
+            }
+        }
+
+        const int obj = intersection_count + symdiff_count;
+        const long long num_colors = static_cast<long long>(color_homo_bv.size());
+        const double hom_correction = static_cast<double>(ell_hom) / m_G_hom_avg;
+        const double het_correction = static_cast<double>(ell_het) / m_G_het_avg;
+        const double opt_upper_bound_raw =
+            m_bar * (static_cast<double>(obj) - hom_correction + het_correction)
+            + static_cast<double>(delta_hom);
+        const double trivial_upper_bound = static_cast<double>(num_colors);
+
+        // Every color contributes at most one to the true objective, so C is an
+        // independent upper bound. Use the tighter of the two valid bounds.
+        // If the derived expression falls below obj(P), fall back to C and warn,
+        // because any valid upper bound must be at least the value of the feasible P.
+        double opt_obj_upper_bound = trivial_upper_bound;
+        if (std::isfinite(opt_upper_bound_raw)
+            && opt_upper_bound_raw + 1e-9 >= static_cast<double>(obj)) {
+            opt_obj_upper_bound = std::min(opt_upper_bound_raw, trivial_upper_bound);
+        }
+
+        const double approximation_factor_raw = obj > 0
+            ? opt_upper_bound_raw / static_cast<double>(obj)
+            : std::numeric_limits<double>::infinity();
+        const double approximation_factor = obj > 0
+            ? opt_obj_upper_bound / static_cast<double>(obj)
+            : std::numeric_limits<double>::infinity();
+
         std::cout << "r: " << best_r << " obj: " << obj << std::endl;
-
-        float opt_obj_upper_bound = m_bar * (obj + additive_term);
-
         std::cout << "Approximation certificate: multiplicative factor: "
-                  << opt_obj_upper_bound / (float)obj << std::endl;
+                  << std::setprecision(12) << approximation_factor
+                  << " (raw: " << approximation_factor_raw << ")" << std::endl;
+
+        // Machine-readable output consumed by data/DipGenie/plot.sh.
+        std::cout << "APPROX_CERT"
+                  << " factor=" << std::setprecision(12) << approximation_factor
+                  << " factor_raw=" << approximation_factor_raw
+                  << " obj=" << obj
+                  << " s_hom=" << s_hom
+                  << " s_het=" << s_het
+                  << " m_G_hom=" << m_G_hom
+                  << " m_G_het=" << m_G_het
+                  << " m_G_hom_avg=" << m_G_hom_avg
+                  << " m_G_het_avg=" << m_G_het_avg
+                  << " ell_hom=" << ell_hom
+                  << " ell_het=" << ell_het
+                  << " delta_hom=" << delta_hom
+                  << " delta_hom_levelsum=" << delta_hom_levelsum
+                  << " num_colors=" << num_colors
+                  << " m_bar=" << m_bar
+                  << " opt_upper_bound_raw=" << opt_upper_bound_raw
+                  << " trivial_upper_bound=" << trivial_upper_bound
+                  << " opt_upper_bound=" << opt_obj_upper_bound
+                  << std::endl;
+
+        if (ell_hom < 0 || ell_het < 0) {
+            std::cerr << "[WARN] Approximation-certificate loss term is negative: "
+                      << "ell_hom=" << ell_hom << ", ell_het=" << ell_het
+                      << ". Check that the implemented DP score matches the certificate definitions."
+                      << std::endl;
+        }
+        if (std::isfinite(opt_upper_bound_raw)
+            && opt_upper_bound_raw + 1e-9 < static_cast<double>(obj)) {
+            std::cerr << "[WARN] Derived approximation upper bound ("
+                      << opt_upper_bound_raw << ") is below obj(P)=" << obj
+                      << "; using the trivial color-count upper bound instead."
+                      << std::endl;
+        }
+        if (obj == 0) {
+            std::cerr << "[WARN] Approximation factor is undefined because obj(P)=0."
+                      << std::endl;
+        }
     }
 
     const auto end_time = std::chrono::steady_clock::now();

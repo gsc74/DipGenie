@@ -99,4 +99,93 @@ for T in "${TAGS[@]}"; do
   done
 done
 
+
+
+# --- Corrected approximation certificate ---
+# The executable writes one machine-readable APPROX_CERT line to stdout.
+echo "Sample,Depth,Value,Tool,RawValue,Obj,SHom,SHet,MGHom,MGHet,MGHomAvg,MGHetAvg,EllHom,EllHet,DeltaHom,DeltaHomLevelSum,NumColors,MBar,OptUpperBoundRaw,TrivialUpperBound,OptUpperBound" > output/Approximation.csv
+for T in "${TAGS[@]}"; do
+  for S in "${SAMPLES[@]}"; do
+    LOG="logs/${S}_${T}.out"
+    line=""
+    if [[ -f "$LOG" ]]; then
+      line=$(grep '^APPROX_CERT ' "$LOG" | tail -n1 || true)
+    fi
+
+    if [[ -n "$line" ]]; then
+      read_field () {
+        local key="$1"
+        awk -v key="$key" '{
+          for (i = 1; i <= NF; ++i) {
+            split($i, kv, "=")
+            if (kv[1] == key) {
+              print kv[2]
+              exit
+            }
+          }
+        }' <<< "$line"
+      }
+
+      factor=$(read_field factor)
+      factor_raw=$(read_field factor_raw)
+      obj=$(read_field obj)
+      s_hom=$(read_field s_hom)
+      s_het=$(read_field s_het)
+      m_G_hom=$(read_field m_G_hom)
+      m_G_het=$(read_field m_G_het)
+      m_G_hom_avg=$(read_field m_G_hom_avg)
+      m_G_het_avg=$(read_field m_G_het_avg)
+      ell_hom=$(read_field ell_hom)
+      ell_het=$(read_field ell_het)
+      delta_hom=$(read_field delta_hom)
+      delta_hom_levelsum=$(read_field delta_hom_levelsum)
+      num_colors=$(read_field num_colors)
+      m_bar=$(read_field m_bar)
+      opt_upper_bound_raw=$(read_field opt_upper_bound_raw)
+      trivial_upper_bound=$(read_field trivial_upper_bound)
+      opt_upper_bound=$(read_field opt_upper_bound)
+
+      factor=${factor:---}
+      factor_raw=${factor_raw:---}
+      obj=${obj:---}
+      s_hom=${s_hom:---}
+      s_het=${s_het:---}
+      m_G_hom=${m_G_hom:---}
+      m_G_het=${m_G_het:---}
+      m_G_hom_avg=${m_G_hom_avg:---}
+      m_G_het_avg=${m_G_het_avg:---}
+      ell_hom=${ell_hom:---}
+      ell_het=${ell_het:---}
+      delta_hom=${delta_hom:---}
+      delta_hom_levelsum=${delta_hom_levelsum:---}
+      num_colors=${num_colors:---}
+      m_bar=${m_bar:---}
+      opt_upper_bound_raw=${opt_upper_bound_raw:---}
+      trivial_upper_bound=${trivial_upper_bound:---}
+      opt_upper_bound=${opt_upper_bound:---}
+    else
+      factor="--"
+      factor_raw="--"
+      obj="--"
+      s_hom="--"
+      s_het="--"
+      m_G_hom="--"
+      m_G_het="--"
+      m_G_hom_avg="--"
+      m_G_het_avg="--"
+      ell_hom="--"
+      ell_het="--"
+      delta_hom="--"
+      delta_hom_levelsum="--"
+      num_colors="--"
+      m_bar="--"
+      opt_upper_bound_raw="--"
+      trivial_upper_bound="--"
+      opt_upper_bound="--"
+    fi
+
+    echo "${S},${T},${factor},${TOOL},${factor_raw},${obj},${s_hom},${s_het},${m_G_hom},${m_G_het},${m_G_hom_avg},${m_G_het_avg},${ell_hom},${ell_het},${delta_hom},${delta_hom_levelsum},${num_colors},${m_bar},${opt_upper_bound_raw},${trivial_upper_bound},${opt_upper_bound}" >> output/Approximation.csv
+  done
+done
+
 echo "All results saved to output/"
