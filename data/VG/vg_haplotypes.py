@@ -23,8 +23,8 @@ def main(temp_gbz, read_file, tmp_dir, threads, output_fasta):
     # Step 4: KMC k-mer counting
     run_command(f"kmc -k29 -m128 -okff -t{threads} -hp {read_file} {tmp_dir}/sample {tmp_dir}")
 
-    # Step 5: Diploid haplotype sampling
-    run_command(f"vg haplotypes --diploid-sampling -v 2 -t {threads} --num-haplotypes 2 "
+    # Step 5: Diploid haplotype sampling (default 32 candidates; --diploid-sampling always outputs 2 haplotypes)
+    run_command(f"vg haplotypes --diploid-sampling -v 2 -t {threads} "
                 f"-i {tmp_dir}/temp.hapl -k {tmp_dir}/sample.kff -g {tmp_dir}/sample.gbz {temp_gbz}")
 
     # Step 6: Extract paths to FASTA

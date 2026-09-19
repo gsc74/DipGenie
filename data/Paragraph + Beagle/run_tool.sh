@@ -155,7 +155,7 @@ run_one() {
 
   ${NUMA} beagle -Xmx16g \
     ref="$PANEL_GZ" gt="$MERGED_GL" out="$BEAGLE_PREFIX" \
-    map="$GMAP_PLINK" nthreads="$THREADS" ne=5000 \
+    map="$GMAP_PLINK" nthreads="$THREADS" ne=5000 impute=false \
     > "${WORK}/logs/beagle.stdout.log" 2> "${WORK}/logs/beagle.stderr.log" \
   || { echo "[ERROR] Beagle failed for $SAMPLE $TAG"; cat "${WORK}/logs/beagle.stderr.log" >&2; return; }
 
