@@ -1,0 +1,18 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  joint-inference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y g++ make zlib1g-dev libboost-dev python3
+      - name: Build
+        run: make -j2
+      - name: Exact-score, parallel parity, raw input and binning tests
+        run: make -j2 check

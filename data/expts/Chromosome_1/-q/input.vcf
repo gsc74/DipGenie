@@ -1,0 +1,10 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##contig=<ID=chr1,length=100>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##INFO=<ID=AC,Number=A,Type=Integer,Description="Allele count">
+##INFO=<ID=AN,Number=1,Type=Integer,Description="Allele number">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	HG002	HG002#1	NA24385	GM24385_2	HG00232	CONTROL
+chr1	10	.	A	C,G	.	.	AC=999,999;AN=999	GT	1|1	1|1	1|1	1|1	2|2	2|2
+chr1	20	.	A	C	.	.	AC=999;AN=999	GT	1|1	1|1	1|1	1|1	0|0	0|0
+chr1	30	.	A	C	.	.	AC=999;AN=999	GT	1|1	1|1	1|1	1|1	1|1	1|1

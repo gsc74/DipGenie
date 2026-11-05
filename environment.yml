@@ -1,0 +1,10 @@
+name: dipgenie
+channels:
+  - conda-forge
+dependencies:
+  - cxx-compiler
+  - c-compiler
+  - make
+  - zlib
+  - boost-cpp
+  - python >=3.10

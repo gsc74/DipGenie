@@ -5,10 +5,10 @@
 #include "kstring.h"
 
 #include "khashl.h"
-KHASHL_MAP_INIT(KH_LOCAL, h_s2i_t, h_s2i, kh_cstr_t, uint32_t, kh_hash_str, kh_eq_str)
+KHASHL_MAP_INIT(KH_LOCAL, h_s2i_t, h_s2i, kh_cstr_t, uint64_t, kh_hash_str, kh_eq_str)
 
 #include "ksort.h"
-#define gfa_arc_key(a) ((a).v_lv)
+#define gfa_arc_key(a) ((a).v)
 KRADIX_SORT_INIT(arc, gfa_arc_t, gfa_arc_key, 8)
 
 #define generic_key(x) (x)
@@ -27,7 +27,8 @@ gfa_t *gfa_init(void)
 
 void gfa_destroy(gfa_t *g)
 {
-	uint32_t i, j;
+	uint64_t i;
+	uint32_t j;
 	uint64_t k;
 	if (g == 0) return;
 	h_s2i_destroy((h_s2i_t*)g->h_names);
@@ -45,11 +46,17 @@ void gfa_destroy(gfa_t *g)
 		}
 	}
 	for (i = 0; i < g->n_sseq; ++i) free(g->sseq[i].name);
+	for (i = 0; i < g->n_walk; ++i) {
+		free(g->walk[i].sample);
+		free(g->walk[i].v);
+		free(g->walk[i].aux.aux);
+	}
 	h_s2i_destroy((h_s2i_t*)g->h_snames);
 	if (g->link_aux)
 		for (k = 0; k < g->n_arc; ++k)
 			free(g->link_aux[k].aux);
 	free(g->idx); free(g->seg); free(g->arc); free(g->link_aux); free(g->sseq);
+	free(g->walk);
 	free(g);
 }
 
@@ -72,7 +79,7 @@ char *gfa_strndup(const char *src, size_t n)
 	return dst;
 }
 
-int32_t gfa_add_seg(gfa_t *g, const char *name)
+int64_t gfa_add_seg(gfa_t *g, const char *name)
 {
 	khint_t k;
 	int absent;
@@ -81,7 +88,7 @@ int32_t gfa_add_seg(gfa_t *g, const char *name)
 	if (absent) {
 		gfa_seg_t *s;
 		if (g->n_seg == g->m_seg) {
-			uint32_t old_m = g->m_seg;
+			uint64_t old_m = g->m_seg;
 			g->m_seg = g->m_seg? g->m_seg<<1 : 16;
 			g->seg = (gfa_seg_t*)realloc(g->seg, g->m_seg * sizeof(gfa_seg_t));
 			memset(&g->seg[old_m], 0, (g->m_seg - old_m) * sizeof(gfa_seg_t));
@@ -134,7 +141,7 @@ void gfa_sseq_update(gfa_t *g, const gfa_seg_t *s)
 	}
 }
 
-int32_t gfa_name2id(const gfa_t *g, const char *name)
+int64_t gfa_name2id(const gfa_t *g, const char *name)
 {
 	h_s2i_t *h = (h_s2i_t*)g->h_names;
 	khint_t k;
@@ -142,7 +149,7 @@ int32_t gfa_name2id(const gfa_t *g, const char *name)
 	return k == kh_end(h)? -1 : kh_val(h, k);
 }
 
-gfa_arc_t *gfa_add_arc1(gfa_t *g, uint32_t v, uint32_t w, int32_t ov, int32_t ow, int64_t link_id, int comp)
+gfa_arc_t *gfa_add_arc1(gfa_t *g, uint64_t v, uint64_t w, int32_t ov, int32_t ow, int64_t link_id, int comp)
 {
 	gfa_arc_t *a;
 	if (g->m_arc == g->n_arc) {
@@ -154,7 +161,7 @@ gfa_arc_t *gfa_add_arc1(gfa_t *g, uint32_t v, uint32_t w, int32_t ov, int32_t ow
 		memset(&g->link_aux[old_m], 0, (g->m_arc - old_m) * sizeof(gfa_aux_t));
 	}
 	a = &g->arc[g->n_arc++];
-	a->v_lv = (uint64_t)v << 32;
+	a->v = v, a->lv = 0;
 	a->w = w, a->ov = ov, a->ow = ow, a->rank = -1;
 	a->link_id = link_id >= 0? link_id : g->n_arc - 1;
 	if (link_id >= 0) a->rank = g->arc[link_id].rank; // TODO: this is not always correct!
@@ -167,7 +174,7 @@ int gfa_arc_is_sorted(const gfa_t *g)
 {
 	uint64_t e;
 	for (e = 1; e < g->n_arc; ++e)
-		if (g->arc[e-1].v_lv > g->arc[e].v_lv)
+		if (g->arc[e-1].v > g->arc[e].v)
 			break;
 	return (e == g->n_arc);
 }
@@ -177,14 +184,14 @@ void gfa_arc_sort(gfa_t *g)
 	radix_sort_arc(g->arc, g->arc + g->n_arc);
 }
 
-uint64_t *gfa_arc_index_core(size_t max_seq, size_t n, const gfa_arc_t *a)
+gfa_arc_index_t *gfa_arc_index_core(size_t max_seq, size_t n, const gfa_arc_t *a)
 {
 	size_t i, last;
-	uint64_t *idx;
-	idx = (uint64_t*)calloc(max_seq * 2, 8);
+	gfa_arc_index_t *idx;
+	idx = (gfa_arc_index_t*)calloc(max_seq * 2, sizeof(gfa_arc_index_t));
 	for (i = 1, last = 0; i <= n; ++i)
 		if (i == n || gfa_arc_head(a[i-1]) != gfa_arc_head(a[i]))
-			idx[gfa_arc_head(a[i-1])] = (uint64_t)last<<32 | (i - last), last = i;
+			idx[gfa_arc_head(a[i-1])] = {last, i - last}, last = i;
 	return idx;
 }
 
@@ -200,7 +207,8 @@ void gfa_arc_index(gfa_t *g)
 
 uint32_t gfa_fix_no_seg(gfa_t *g)
 {
-	uint32_t i, n_err = 0;
+	uint64_t i;
+	uint32_t n_err = 0;
 	for (i = 0; i < g->n_seg; ++i) {
 		gfa_seg_t *s = &g->seg[i];
 		if (s->len == 0) {
@@ -217,7 +225,7 @@ void gfa_fix_arc_len(gfa_t *g)
 	uint64_t k;
 	for (k = 0; k < g->n_arc; ++k) {
 		gfa_arc_t *a = &g->arc[k];
-		uint32_t v = gfa_arc_head(*a), w = gfa_arc_tail(*a);
+		uint64_t v = gfa_arc_head(*a), w = gfa_arc_tail(*a);
 		const gfa_seg_t *sv = &g->seg[v>>1];
 		if (!sv->del && sv->len < a->ov) {
 			if (gfa_verbose >= 2)
@@ -227,22 +235,23 @@ void gfa_fix_arc_len(gfa_t *g)
 		if (sv->del || g->seg[w>>1].del) {
 			a->del = 1;
 		} else {
-			a->v_lv |= sv->len - a->ov;
+			a->lv = sv->len - a->ov;
 		}
 	}
 }
 
 uint32_t gfa_fix_semi_arc(gfa_t *g)
 {
-	uint32_t n_err = 0, v, n_vtx = gfa_n_vtx(g);
-	int i, j;
+	uint32_t n_err = 0;
+	uint64_t v, n_vtx = gfa_n_vtx(g), i, j;
 	for (v = 0; v < n_vtx; ++v) {
-		int nv = gfa_arc_n(g, v);
+		uint64_t nv = gfa_arc_n(g, v);
 		gfa_arc_t *av = gfa_arc_a(g, v);
 		for (i = 0; i < nv; ++i) {
 			if (!av[i].del && (av[i].ow == INT32_MAX || av[i].ov == INT32_MAX)) { // overlap length is missing
-				uint32_t w = av[i].w^1;
-				int is_multi = 0, c, jv = -1, nw = gfa_arc_n(g, w);
+				uint64_t w = av[i].w^1, nw = gfa_arc_n(g, w);
+				int is_multi = 0, c;
+				int64_t jv = -1;
 				gfa_arc_t *aw = gfa_arc_a(g, w);
 				for (j = 0, c = 0; j < nw; ++j)
 					if (!aw[j].del && aw[j].w == (v^1)) ++c, jv = j;
@@ -268,13 +277,13 @@ uint32_t gfa_fix_semi_arc(gfa_t *g)
 
 uint32_t gfa_fix_symm_add(gfa_t *g)
 {
-	uint32_t n_err = 0, v, n_vtx = gfa_n_vtx(g);
-	int i;
+	uint32_t n_err = 0;
+	uint64_t v, n_vtx = gfa_n_vtx(g), i;
 	for (v = 0; v < n_vtx; ++v) {
-		int nv = gfa_arc_n(g, v);
+		uint64_t nv = gfa_arc_n(g, v);
 		gfa_arc_t *av = gfa_arc_a(g, v);
 		for (i = 0; i < nv; ++i) {
-			int j, nw;
+			uint64_t j, nw;
 			gfa_arc_t *aw, *avi = &av[i];
 			if (avi->del || avi->comp) continue;
 			nw = gfa_arc_n(g, avi->w^1);
@@ -305,9 +314,9 @@ uint32_t gfa_fix_symm_add(gfa_t *g)
 
 void gfa_arc_rm(gfa_t *g)
 {
-	uint32_t e, n;
+	uint64_t e, n;
 	for (e = n = 0; e < g->n_arc; ++e) {
-		uint32_t u = g->arc[e].v_lv>>32, v = g->arc[e].w;
+		uint64_t u = g->arc[e].v, v = g->arc[e].w;
 		if (!g->arc[e].del && !g->seg[u>>1].del && !g->seg[v>>1].del)
 			g->arc[n++] = g->arc[e];
 		else {
@@ -338,7 +347,7 @@ void gfa_cleanup(gfa_t *g)
 
 int32_t gfa_check_multi(const gfa_t *g)
 {
-	uint32_t v, n_vtx = gfa_n_vtx(g);
+	uint64_t v, n_vtx = gfa_n_vtx(g);
 	int32_t max_nv = -1, n_multi = 0;
 	uint64_t *buf; // actually, uint32_t is enough
 	for (v = 0; v < n_vtx; ++v) {
@@ -362,7 +371,8 @@ int32_t gfa_check_multi(const gfa_t *g)
 
 uint32_t gfa_fix_multi(gfa_t *g)
 {
-	uint32_t v, n_vtx = gfa_n_vtx(g), n_rm = 0;
+	uint64_t v, n_vtx = gfa_n_vtx(g);
+	uint32_t n_rm = 0;
 	int32_t max_nv = -1;
 	uint64_t *buf; // actually, uint32_t is enough
 	for (v = 0; v < n_vtx; ++v) {

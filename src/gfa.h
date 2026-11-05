@@ -25,26 +25,27 @@
 
   The graph topology is solely represented by an array of gfa_arc_t objects
   (see gfa_t::arc[]), where both an arc and its complement are present. The
-  array is sorted by gfa_arc_t::v_lv and indexed by gfa_t::idx[] most of time.
+  array is sorted by gfa_arc_t::v and indexed by gfa_t::idx[] most of time.
   gfa_arc_a(g, v), of size gfa_arc_n(g, v), gives the array of arcs that leaves
   a vertex v in the graph g.
 */
 
 typedef struct {
-	uint64_t v_lv; // higher 32 bits: vertex_id; lower 32 bits: lv; packed together for sorting
-	uint32_t w;
+	uint64_t v, w; // global oriented vertex IDs
+	uint32_t lv;
 	int32_t rank;
 	int32_t ov, ow;
 	uint64_t link_id:61, strong:1, del:1, comp:1; // link_id: a pair of dual arcs are supposed to have the same link_id
 } gfa_arc_t;
 
-#define gfa_arc_head(a) ((uint32_t)((a).v_lv>>32))
+#define gfa_arc_head(a) ((a).v)
 #define gfa_arc_tail(a) ((a).w)
-#define gfa_arc_len(a) ((uint32_t)(a).v_lv) // different from the original string graph
+#define gfa_arc_len(a) ((a).lv) // different from the original string graph
 #define gfa_arc_lw(g, a) ((g)->seg[(a).w>>1].len - (a).ow)
 
-#define gfa_arc_n(g, v) ((uint32_t)(g)->idx[(v)])
-#define gfa_arc_a(g, v) (&(g)->arc[(g)->idx[(v)]>>32])
+typedef struct { uint64_t offset, degree; } gfa_arc_index_t;
+#define gfa_arc_n(g, v) ((g)->idx[(v)].degree)
+#define gfa_arc_a(g, v) (&(g)->arc[(g)->idx[(v)].offset])
 
 typedef struct {
 	uint32_t m_aux, l_aux;
@@ -85,17 +86,19 @@ typedef struct {
 typedef struct {
 	char *sample;
 	int32_t snid;
-	int32_t hap, n_v;
+	int32_t hap;
+	uint64_t n_v;
 	int64_t st, en;
-	uint32_t *v;
+	uint64_t *v;
 	gfa_aux_t aux;
 } gfa_walk_t;
 
-#define gfa_n_vtx(g) ((g)->n_seg << 1)
+#define gfa_n_vtx(g) ((g)->n_seg << 1ULL)
 
 typedef struct {
 	// segments
-	uint32_t m_seg, n_seg, max_rank;
+	uint64_t m_seg, n_seg;
+	uint32_t max_rank;
 	gfa_seg_t *seg;
 	void *h_names;
 	// persistent names
@@ -106,7 +109,7 @@ typedef struct {
 	uint64_t m_arc, n_arc;
 	gfa_arc_t *arc;
 	gfa_aux_t *link_aux;
-	uint64_t *idx;
+	gfa_arc_index_t *idx;
 	// walks
 	uint32_t m_walk, n_walk;
 	gfa_walk_t *walk;
@@ -118,14 +121,6 @@ typedef struct {
 	int32_t len;
 } gfa_edseq_t;
 
-// graph augmentation
-
-typedef struct {
-	uint32_t v[2];
-	int32_t voff[2];
-	int32_t coff[2], ctg;
-} gfa_ins_t;
-
 extern int gfa_verbose;
 // extern unsigned char gfa_comp_table[256];
 
@@ -135,13 +130,14 @@ extern "C" {
 
 gfa_t *gfa_init(void);
 void gfa_destroy(gfa_t *g);
-gfa_t *gfa_read(const char *fn);
+gfa_t *gfa_read(const char *fn, uint32_t n_threads);
+int gfa_read_walks(gfa_t *g, const char *fn, uint32_t n_threads);
 void gfa_print(const gfa_t *g, FILE *fp, int M_only);
 
 gfa_edseq_t *gfa_edseq_init(const gfa_t *g);
 void gfa_edseq_destroy(int32_t n_seg, gfa_edseq_t *es);
 
-int32_t gfa_name2id(const gfa_t *g, const char *name);
+int64_t gfa_name2id(const gfa_t *g, const char *name);
 uint8_t *gfa_aux_get(int l_data, const uint8_t *data, const char tag[2]);
 int gfa_aux_del(int l_data, uint8_t *data, uint8_t *s);
 
