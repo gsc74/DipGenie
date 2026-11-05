@@ -1,5 +1,4 @@
 DipGenie (A tool for pangenome graph–based phased diploid genome inference),
-Copyright (C) 2025 Intel Corporation.
 
 This software constitutes a joint work and the contributions of individual
 authors are subject to different licenses.  Contributions and licenses are
@@ -16,62 +15,89 @@ without a copyright notice. Restrictions cannot be placed on its present or
 future use.
 
 --
-For code used from minigraph:
+THIRD-PARTY SOFTWARE
 
-URL: https://lh3.github.io/minigraph
+Third-party code retains its original copyright and license terms. This
+distribution includes or adapts the following software:
 
-The MIT License
+hifiasm positional localizer (adapted in src/NativeLocalizer.hpp)
+  https://github.com/chhylp123/hifiasm
+  Commit ec9a8b222d149d25b7355e83765698640d59b189, hic.cpp
+  MIT License, Copyright (c) 2019
+  License: third_party/HIFIASM-LICENSE.txt
 
-Copyright (c) 2019-     Dana-Farber Cancer Institute
+minigraph
+  https://github.com/lh3/minigraph
+  MIT License
+  Copyright (c) 2019- Dana-Farber Cancer Institute
+  License: third_party/MINIGRAPH-LICENSE.txt
 
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
+PanAligner
+  https://github.com/at-cg/PanAligner
+  Public-domain notice, with minigraph-derived portions under the MIT License
+  License: third_party/PANALIGNER-LICENSE.txt
 
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
+minimap2 v2.31
+  https://github.com/lh3/minimap2
+  MIT License
+  Copyright (c) 2018- Dana-Farber Cancer Institute
+  Copyright (c) 2017-2018 Broad Institute, Inc.
+  License: third_party/minimap2/LICENSE.txt
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
-BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
-ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+HTSbox r352 and its HTSlib-derived sources, excluding RAZF
+  https://github.com/lh3/htsbox
+  Commit c901cb3
+  MIT License
+  Copyright (c) 2018- Dana-Farber Cancer Institute
+  Copyright (c) 2009-2018 Broad Institute
+  Copyright (c) 2008-2009 Genome Research Ltd.
+  License: third_party/HTSBOX-LICENSE.txt
 
---
-For code used for Murmurhash3
+RAZF
+  https://github.com/lh3/htsbox
+  Two-clause BSD license
+  Copyright 2008 Jue Ruan and Heng Li
+  License: third_party/RAZF-LICENSE.txt
 
-Apache License, Version 2.0
+unordered_dense v5.3.3 (third_party/unordered_dense)
+  https://github.com/martinus/unordered_dense
+  MIT License
+  Copyright (c) 2022 Martin Leitner-Ankerl
+  License: third_party/unordered_dense/LICENSE
 
-Austin Appleby
+PanGenie
+  https://github.com/eblerjana/pangenie
+  MIT License
+  Copyright (c) 2020 Jana Ebler
+  License: third_party/PanGenie-LICENSE.md
 
---
-For vg toolkit
+Selected klib headers (khashl.h, ksort.h, and kstring.h)
+  https://github.com/attractivechaos/klib
+  MIT License
+  Copyright Attractive Chaos
+  The applicable notice is retained in each named header under src/.
 
-The MIT License (MIT)
+zlib
+  https://github.com/madler/zlib
+  zlib License
+  Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler
+  License: https://zlib.net/zlib_license.html
 
-Copyright (c) 2014 Erik Garrison
+Dipcall 0.3 (alignment filtering and diploid VCF conversion adapted in C++)
+  https://github.com/lh3/dipcall
+  Commit 6bd5d7724699491f215aeb5fb628490ebf2cc3ae
+  MIT License, Copyright (c) 2019- Dana-Farber Cancer Institute
+  License: third_party/DIPCALL-LICENSE.txt
 
+Tools used only by the benchmark scripts under data/expts are separately
+installed executables, not embedded copies. Their own licenses apply.
+Boost.Multiprecision headers are an external build dependency under the
+Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt).
+Nested dependencies retain their notices in their source trees. The
+kalloc header under src/ is covered by the minimap2 license listed above.
 
---
-For GBWTgraph
-
-Copyright (c) 2019, 2020, 2021, 2022, 2023, 2024 Jouni Siren and other authors
-
-
---
-For code used from PHI:
-
-URL: https://github.com/at-cg/PHI
-
-The MIT License
-
-Copyright (c) 2024 ATCG (Algorithmic Techniques for Computational Genomics)
-
-Contacts: Ghanshyam Chandra <ghanshyam.chandra@intel.com>; Daniel Gibney <daniel.gibney@utdallas.edu>
+MurmurHash3 (src/MurmurHash.hpp)
+  https://github.com/aappleby/smhasher
+  Public domain; written by Austin Appleby.
+  The original disclaimer is retained in the source header. The x64-128
+  implementation is header-only here and uses memcpy for unaligned block reads.

@@ -70,8 +70,8 @@ char *gfa_strndup(const char *src, size_t n);
 void radix_sort_gfa64(uint64_t *st, uint64_t *en);
 
 // add/delete one segment/arc/stable sequence
-int32_t gfa_add_seg(gfa_t *g, const char *name);
-gfa_arc_t *gfa_add_arc1(gfa_t *g, uint32_t v, uint32_t w, int32_t ov, int32_t ow, int64_t link_id, int comp);
+int64_t gfa_add_seg(gfa_t *g, const char *name);
+gfa_arc_t *gfa_add_arc1(gfa_t *g, uint64_t v, uint64_t w, int32_t ov, int32_t ow, int64_t link_id, int comp);
 int32_t gfa_sseq_get(const gfa_t *g, const char *sname);
 int32_t gfa_sseq_add(gfa_t *g, const char *sname);
 void gfa_sseq_update(gfa_t *g, const gfa_seg_t *s);
@@ -144,11 +144,6 @@ void gfa_sub_print(FILE *fp, const gfa_t *g, const gfa_sub_t *sub);
 gfa_scbuf_t *gfa_scbuf_init(const gfa_t *g);
 gfa_sub_t *gfa_scc1(void *km0, const gfa_t *g, gfa_scbuf_t *b, uint32_t v0);
 void gfa_scbuf_destroy(gfa_scbuf_t *b);
-
-// graph augmentation
-int gfa_ins_adj(const gfa_t *g, int min_len, gfa_ins_t *ins, const char *seq);
-int32_t gfa_ins_filter(const gfa_t *g, int32_t n_ins, gfa_ins_t *ins);
-void gfa_augment(gfa_t *g, int32_t n_ins, const gfa_ins_t *ins, int32_t n_ctg, const char *const* name, const char *const* seq);
 
 gfa_sfa_t *gfa_gfa2sfa(const gfa_t *g, int32_t *n_sfa_, int32_t write_seq);
 

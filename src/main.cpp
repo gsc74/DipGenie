@@ -1,209 +1,144 @@
+#include "Inference.hpp"
+#include "InputGraph.hpp"
+#include "DipcallRunner.hpp"
+#include "VariantOutput.hpp"
+#include <chrono>
 #include <iostream>
-#include <stdlib.h>
-#include "gfa-priv.h"
-#include "DipGeniePriv.h"
-#include "ketopt.h"
-#include <zlib.h>
-#include "ILP_index.h"
-#include "approximator.h"
-#include <map>
 #include <set>
-#include "sys.h"
-#include <omp.h>
 
-// CPP
-#include <vector>
-#include <unordered_map>
-
-
-static ko_longopt_t long_options[] = {
-    { const_cast<char*>("version"), ko_no_argument, 300 },
-    { 0, 0, 0 }
-};
-
-int main(int argc, char *argv[]) {
-    // Increase stack size
-    struct rlimit rl;
-    // Set the new stack size limit
-    rl.rlim_cur = std::pow(10, 10);  // 10 GB
-    if (rl.rlim_cur > rl.rlim_max) {
-        rl.rlim_max = rl.rlim_cur;  // Ensure the hard limit is at least as large as the soft limit
-    }
-
-    // check the current status of the stack size
-    if (setrlimit(RLIMIT_STACK, &rl) == -1) {
-        perror("setrlimit");
-        exit(EXIT_FAILURE);
-    }
-
-    const char *opt_str = "x:p:d:c:l:s:m:R:P:a:q:T:H:N:m:h:k:w:t:g:r:o:DSc";
-    ketopt_t o = KETOPT_INIT;
-	mg_mapopt_t opt;
-	mg_idxopt_t ipt;
-    bool debug = false;
-    int32_t recombination_limit = 18;
-    int32_t recombination_penality = 100;
-    int32_t is_qclp = 1;
-    int32_t is_naive_exp = 0;
-    float threshold = 1.0f;
-    bool is_mixed = true;
-    int32_t ploidy = 2;
-    bool is_low_cov = false;
-    int32_t top_k = 15; // Needs Fix
-    bool approximator = false;
-
-    int i, c, ret;
-	FILE *fp_help = stderr;
-    int32_t help = 0;
-    mg_verbose = 3;
-    int32_t max_occ = 5000;
-
-	mg_opt_set(0, &ipt, &opt);
-	o = KETOPT_INIT;
-
-	while ((c = ketopt(&o, argc, argv, 1, opt_str, long_options)) >= 0) {
-		if (c == 'w') ipt.w = atoi(o.arg);
-		else if (c == 'k') ipt.k = atoi(o.arg);
-        else if (c == 'p') ploidy = atoi(o.arg);
-        else if (c == 'l') is_low_cov = atoi(o.arg);
-		else if (c == 't') opt.n_threads = atoi(o.arg);
-        else if (c == 'm') is_mixed = atoi(o.arg);
-        else if (c == 'g') opt.gfa_file = o.arg;
-        else if (c == 'R') recombination_limit = atoi(o.arg);
-        else if (c == 'P') recombination_penality = atoi(o.arg);
-        else if (c == 'a') approximator = atoi(o.arg);
-        else if (c == 'q') is_qclp = atoi(o.arg);
-        else if (c == 'N') is_naive_exp = atoi(o.arg);
-        else if (c == 'H') top_k = atoi(o.arg);
-        else if (c == 'T') threshold = atof(o.arg);
-        else if (c == 'r') opt.reads_file = o.arg;
-        else if (c == 'o') opt.hap_file = o.arg;
-        else if (c == 'c') max_occ = atoi(o.arg);
-        else if (c == 'd') debug = atoi(o.arg);
-        else if (c == 'h') help = 1;
-        else if (c == 300) {
-            fprintf(fp_help, "DipGenie version: %s\n", DIPGENIE_VERSION);
+namespace fs=std::filesystem;
+int main(int argc,char**argv)try {
+    std::map<std::string,std::string> args;
+    const std::set<std::string> flags={"--sr","--hic"};
+    const std::set<std::string> values={"--gfa","--gindex","--vcf","--reference","--REF","--out","--write-index",
+        "--r1","--r2","--h1","--h2","--sample","--output-vcf","-t","-R"};
+    for(int i=1;i<argc;++i) {
+        std::string key=argv[i],attached;
+        if(key.size()>2&&(key.rfind("-t",0)==0||key.rfind("-R",0)==0)) {
+            attached=key.substr(2);key.resize(2);
+        }
+        if(key=="--help"||key=="-h") {
+            std::cout<<"DipGenie: joint diploid inference from paired SR and/or Hi-C reads\n"
+                "  --gfa graph.gfa --REF reference_path   or --vcf panel.vcf.gz --reference ref.fa\n"
+                "  --write-index panel.gindex            build a reusable graph/reference index\n"
+                "  --gindex panel.gindex --out run -t 8 -R 18\n"
+                "  --sr -r1 reads.R1.fq.gz -r2 reads.R2.fq.gz\n"
+                "  --hic -h1 hic.R1.fq.gz -h2 hic.R2.fq.gz\n"
+                "  Paired reads are localized on the graph; no external read mapper is required.\n"
+                "  Combine --sr and --hic for both libraries. GFA supports cycles.\n"
+                "  --output-vcf calls.vcf.gz --sample HG002 also writes phased variant calls.\n"
+                "  -R is a shared recombination budget per component; default 18.\n";
             return 0;
         }
-	}
-
-	if (argv[1] == NULL || opt.gfa_file == "" || opt.reads_file == "" || opt.hap_file == "" || help == 1 || fp_help == stdout) {
-		fprintf(fp_help, "Usage: DipGenie -g <target.gfa> -r <reads.fa> -o <haplotype.fasta> \n");
-		fprintf(fp_help, "Options:\n");
-        fprintf(fp_help, "    -a bool      DP approximation mode\n");
-		fprintf(fp_help, "    -k INT       K-mer size [%d]\n", ipt.k);
-		fprintf(fp_help, "    -w INT       Minimizer window size [%d]\n", ipt.w);
-        fprintf(fp_help, "    -R INT       Recombination limit [%d]\n", recombination_limit);
-        fprintf(fp_help, "    -P INT       Recombination penality for ILP [%d]\n", recombination_penality);
-        fprintf(fp_help, "    -H INT       Top H haplotypes [%d]\n", top_k);
-        fprintf(fp_help, "    -q INT       Mode QP/ILP (default IQP i.e q1, use q0 for ILP) [%d]\n", is_qclp);
-        // fprintf(fp_help, "    -N INT       Mode OPT/Naive expanded graph (default Optimized i.e N0, use N1 for Naive) [%d]\n", is_naive_exp);
-        fprintf(fp_help, "    -m INT       Mixed/Interger programming (default Mixed i.e -m1, use -m0 for Integer) [%d]\n", is_mixed);
-        fprintf(fp_help, "    -p INT       Ploidy (default diploid i.e -p2, use -p1 for haploid) [%d]\n", ploidy);
-        fprintf(fp_help, "    -l INT       Low coverage mode (default high covergae mode i.e -l1, use -l0 for low coverage mode) [%d]\n", is_low_cov);
-        fprintf(fp_help, "    -T FLOAT     Threshold for minimizer filtering [%.3f]\n", threshold);
-        fprintf(fp_help, "    -t INT       Threads [%d]\n", opt.n_threads);
-        fprintf(fp_help, "    -g INT       GFA file [%s]\n", opt.gfa_file.c_str());
-        fprintf(fp_help, "    -r INT       Read [%s]\n", opt.reads_file.c_str());
-        fprintf(fp_help, "    -o INT       Output haplotype [%s]\n", opt.hap_file.c_str());
-        fprintf(fp_help, "    -d bool      Debug mode [%d]\n", debug);
-		return fp_help == stdout? 0 : 1;
-	};
-
-    // start time 
-    mg_realtime0 = realtime();
-
-    std::string reads = opt.reads_file;
-    gfa_t *g = gfa_read(opt.gfa_file.c_str());
-    if (g == 0) {
-        fprintf(stderr, "[E::%s] failed to load the GFA file\n", __func__);
-        return 1;
-    }
-    fprintf(stderr, "[M::%s::%.3f*%.2f] Loaded graph from: %s\n", __func__, realtime() - mg_realtime0, cputime() / (realtime() - mg_realtime0), opt.gfa_file.c_str());
-
-    // Get haplotype name (used as an id for the haplotype)
-    std::string hap_name = "";
-    get_hap_name((char *)opt.gfa_file.c_str(), (char *)opt.reads_file.c_str(), hap_name);
-    // Read the reads from "-r" file
-    std::vector<std::pair<std::string, std::string>> ip_reads; //ip_reads[idx] = (read_id, sequence)
-
-    if(!approximator){
-        
-        Approximator *approximator_handle = new Approximator(g);
-        approximator_handle->read_gfa();
-
-        // Read params
-        approximator_handle->num_threads = opt.n_threads; // number of threads
-        approximator_handle->hap_file = opt.hap_file; // haplotype file to be written
-        approximator_handle->debug = debug; // debug mode
-        approximator_handle->hap_name = hap_name; // haplotype name to be written as id of the haplotype
-        approximator_handle->k_mer = ipt.k; // k-mer size
-        approximator_handle->window = ipt.w; // window size
-        approximator_handle->bucket_bits = 14; // bucket bits
-        approximator_handle->max_occ = max_occ; // maximum k-mer occurence
-        approximator_handle->recombination_limit = recombination_limit; // recombination limit
-        approximator_handle->recombination_penalty = recombination_penality; // recombination limit
-        approximator_handle->max_occ = max_occ; // maximum k-mer occurence
-        approximator_handle->is_qclp = is_qclp; // mode QCLP/ILP
-        approximator_handle->is_naive_exp = is_naive_exp; // naive mode
-        approximator_handle->threshold = threshold; // threshold for k-mer filtering
-        approximator_handle->is_mixed = is_mixed; // mixed mode
-
-        // execute the approximator function
-        bool diploid;
-        if(ploidy == 1){
-            diploid = false;
+        if(key=="--version"){std::cout<<"DipGenie joint-linkage 2.0\n";return 0;}
+        if(key=="-r1"||key=="-r2"||key=="-h1"||key=="-h2")key="-"+key;
+        if(!flags.count(key)&&!values.count(key))throw std::invalid_argument("Unknown option: "+key);
+        std::string value="1";
+        if(!flags.count(key)) {
+            if(!attached.empty())value=attached;
+            else {if(++i==argc)throw std::invalid_argument("Missing value: "+key);value=argv[i];}
         }
-        else if(ploidy == 2){
-            diploid = true;
-        }else{
-            std::cout << "Current approximator support is only for ploidy = 1 or ploidy = 2" << std::endl;
-            return 0;
-        }
-        approximator_handle->read_ip_reads(ip_reads, reads);
-        approximator_handle->compute_and_classify_anchors(ip_reads);
-        approximator_handle->solve(ip_reads, diploid);
-
-    }else{
-        #ifdef ILP
-            // Index the graph
-            ILP_index *ILP_handle = new ILP_index(g);
-            ILP_handle->read_gfa();
-
-            // Read params
-            ILP_handle->num_threads = opt.n_threads; // number of threads
-            ILP_handle->hap_file = opt.hap_file; // haplotype file to be written
-            ILP_handle->debug = debug; // debug mode
-            ILP_handle->ploidy = ploidy; // ploidy
-            ILP_handle->is_low_cov = is_low_cov; // low coverage mode
-            ILP_handle->hap_name = hap_name; // haplotype name to be written as id of the haplotype
-            ILP_handle->k_mer = ipt.k; // k-mer size
-            ILP_handle->window = ipt.w; // window size
-            ILP_handle->bucket_bits = 14; // bucket bits
-            ILP_handle->max_occ = max_occ; // maximum k-mer occurence
-            ILP_handle->recombination_penalty = recombination_penality; // recombination penalty
-            ILP_handle->max_occ = max_occ; // maximum k-mer occurence
-            ILP_handle->is_qclp = is_qclp; // mode QCLP/ILP
-            ILP_handle->is_naive_exp = is_naive_exp; // naive mode
-            ILP_handle->threshold = threshold; // threshold for k-mer filtering
-            ILP_handle->is_mixed = is_mixed; // mixed mode
-            ILP_handle->top_k = top_k; // top k haplotypes
-
-
-            ILP_handle->read_ip_reads(ip_reads, reads); // read the reads from the file
-            ILP_handle->compute_and_classify_anchors(ip_reads);
-            // execute the ILP function
-            ILP_handle->solve(ip_reads);
-        #endif
-
+        if(!args.emplace(key,value).second)throw std::invalid_argument("Duplicate option: "+key);
     }
-
-    // Print runtime statistics
-    fprintf(stderr, "[M::%s] DipGenie Version: %s\n", __func__, DIPGENIE_VERSION);
-    fprintf(stderr, "[M::%s] CMD:", __func__);
-		for (i = 0; i < argc; ++i)
-			fprintf(stderr, " %s", argv[i]);
-    fprintf(stderr, "\n[M::%s] Real time: %.3f sec; CPU: %.3f sec; Peak RSS: %.3f GB\n", __func__, realtime() - mg_realtime0, cputime(), peakrss() / 1024.0 / 1024.0 / 1024.0);
-    
+    if(args.count("--gfa")+args.count("--vcf")+args.count("--gindex")!=1)
+        throw std::invalid_argument("Choose exactly one of --gfa, --vcf or --gindex");
+    auto positive=[&](const std::string&key,int fallback,int minimum) {
+        if(!args.count(key))return fallback;
+        size_t end=0;int value=std::stoi(args.at(key),&end);
+        if(end!=args.at(key).size()||value<minimum)throw std::invalid_argument("Invalid value: "+key);
+        return value;
+    };
+    const int threads=positive("-t",1,1);(void)positive("-R",18,0);
+    auto read_graph=[&] {
+        const auto start=std::chrono::steady_clock::now();
+        std::cerr<<"[M::DipGenie] reading graph input\n";
+        auto input=hic::graph_input(args,threads);
+        std::cerr<<"[M::DipGenie] graph input ready: components="<<input.references.size()
+                 <<" seconds="<<std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count()<<'\n';
+        return input;
+    };
+    if(args.count("--write-index")) {
+        if(args.count("--sr")||args.count("--hic")||args.count("--out")||args.count("--output-vcf"))
+            throw std::invalid_argument("Index construction does not perform inference");
+        auto input=read_graph();hic::write_graph_index(input,args.at("--write-index"));
+        std::cerr<<"[M::DipGenie] index written: components="<<input.references.size()<<"; explicit full reference stored\n";
+        return 0;
+    }
+    if(!args.count("--out"))throw std::invalid_argument("Inference requires --out");
+    const auto out=fs::absolute(args.at("--out"));args["--out"]=out.string();
+    if(fs::exists(out))throw std::runtime_error("Output exists; choose a fresh output directory");
+    std::vector<hic::ReadLibrary> libraries;
+    auto library=[&](const char*flag,const char*a,const char*b,const char*name,const char*kind) {
+        if(args.count(flag)) {
+            if(!args.count(a)||!args.count(b))throw std::invalid_argument(std::string(flag)+" requires both mates");
+            libraries.push_back({name,kind,args.at(a),args.at(b)});
+        } else if(args.count(a)||args.count(b))throw std::invalid_argument(std::string(a)+"/"+b+" require "+flag);
+    };
+    library("--sr","--r1","--r2","sr","SR");library("--hic","--h1","--h2","hic","HIC");
+    hic::validate_libraries(libraries);
+    if(args.count("--output-vcf")) {
+        args["--output-vcf"]=fs::absolute(args.at("--output-vcf")).string();
+        const auto&name=args.at("--output-vcf");
+        const auto suffix=[&](const std::string&s){return name.size()>=s.size()&&name.compare(name.size()-s.size(),s.size(),s)==0;};
+        if(!suffix(".vcf")&&!suffix(".vcf.gz"))throw std::invalid_argument("VCF output must end in .vcf or .vcf.gz");
+        if(fs::exists(name)||fs::exists(name+".csi")||fs::exists(name+".tbi"))throw std::runtime_error("VCF output/index exists");
+    }
+    auto input=read_graph();
+    auto load_component=[&](size_t c) {
+        const auto start=std::chrono::steady_clock::now();
+        std::cerr<<"[M::DipGenie] loading component="<<input.references.at(c).name<<'\n';
+        auto graph=input.load(c);
+        std::cerr<<"[M::DipGenie] component ready: vertices="<<graph.labels.size()<<" paths="<<graph.paths.size()
+                 <<" seconds="<<std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count()<<'\n';
+        return graph;
+    };
+    if(input.references.size()==1) {
+        auto g=load_component(0);
+        if(g.spell(0)!=input.references[0].sequence)throw std::runtime_error("Indexed reference differs from graph");
+        // Use the stored reference coordinate name for FASTA-to-VCF calling.
+        g.paths[0].name=input.references[0].name;args["--REF"]=g.paths[0].name;
+        input.references.clear();return hic::infer_component(args,std::move(libraries),std::move(g));
+    }
+    fs::create_directories(out);fs::create_directory(out/"read-bins");fs::create_directory(out/"components");
+    std::vector<std::vector<hic::ReadLibrary>> binned(input.references.size());
+    {
+        hic::PairedReadBinner binner(input.references,threads);
+        std::ofstream summary(out/"read-bins.tsv");summary<<"library\tcomponent\tpairs\tbases\n";
+        for(const auto&lib:libraries) {
+            const auto bins=binner.partition(lib,out/"read-bins"/lib.name);
+            for(size_t c=0;c<binned.size();++c) {
+                const auto&s=bins.summaries[c];summary<<lib.name<<'\t'<<input.references[c].name<<'\t'<<s.pairs<<'\t'<<s.bases<<'\n';
+                if(s.pairs)binned[c].push_back(bins.libraries[c]);
+            }
+            std::cerr<<"[M::DipGenie] binned library="<<lib.name<<" input_pairs="<<bins.input_pairs
+                     <<" cross_component="<<bins.cross_component_pairs<<" unassigned="<<bins.unassigned_pairs<<'\n';
+        }
+        summary.close();if(!summary)throw std::runtime_error("Bin summary write failed");
+    }
+    // Release full reference strings after assignment, before graph/DP storage.
+    for(auto&r:input.references){r.sequence.clear();r.sequence.shrink_to_fit();}
+    std::ofstream combined(out/"all-components.fa"),status(out/"components.tsv");std::vector<std::string> vcfs;
+    size_t completed=0;
+    status<<"component\tstatus\toutput\n";
+    for(size_t c=0;c<binned.size();++c) {
+        const auto&name=input.references[c].name;
+        if(binned[c].empty()){status<<name<<"\tNO_READ_PAIRS\tNULL\n";continue;}
+        const auto directory=out/"components"/std::to_string(c);auto options=args;
+        options["--out"]=directory.string();options["--REF"]=name;
+        if(args.count("--output-vcf"))options["--output-vcf"]=(out/"components"/(std::to_string(c)+".vcf.gz")).string();
+        auto graph=load_component(c);graph.paths.at(0).name=name;
+        hic::infer_component(options,binned[c],std::move(graph));
+        ++completed;
+        hic::TextInput fasta((directory/"all-components.fa").string());std::string line;
+        while(fasta.getline(line)){if(!line.empty()&&line[0]=='>')line+="#"+name;combined<<line<<'\n';}
+        if(args.count("--output-vcf"))vcfs.push_back(options.at("--output-vcf"));
+        status<<name<<"\tCOMPLETE\t"<<directory.string()<<'\n';
+    }
+    combined.close();status.close();if(!combined||!status)throw std::runtime_error("Combined output write failed");
+    if(!completed)throw std::runtime_error("No inferred components; approximation_ratio=NULL");
+    if(args.count("--output-vcf")) {
+        if(vcfs.empty())throw std::runtime_error("No inferred components; approximation_ratio=NULL; no VCF generated");
+        dipcall_vcf::output::combine(vcfs,args.at("--output-vcf"));
+    }
     return 0;
-}
+}catch(const std::exception&e){std::cerr<<"[E::DipGenie] "<<e.what()<<'\n';return 1;}

@@ -1,0 +1,18 @@
+{
+  "input_samples": 6,
+  "retained_samples": 2,
+  "excluded_samples": [
+    "HG002",
+    "HG002#1",
+    "NA24385",
+    "GM24385_2"
+  ],
+  "excluded_identity_aliases": [
+    "HG002",
+    "NA24385",
+    "GM24385"
+  ],
+  "separate_samples_with_longer_numeric_ids": [
+    "HG00232"
+  ]
+}
