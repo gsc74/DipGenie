@@ -6,6 +6,8 @@
 #include <iostream>
 #include <set>
 
+#define DIPGENIE_VERSION "2.0"
+
 namespace fs=std::filesystem;
 int main(int argc,char**argv)try {
     std::map<std::string,std::string> args;
@@ -30,7 +32,7 @@ int main(int argc,char**argv)try {
                 "  -R is a shared recombination budget per component; default 18.\n";
             return 0;
         }
-        if(key=="--version"){std::cout<<"DipGenie joint-linkage 2.0\n";return 0;}
+        if(key=="--version"){std::cout<<"DipGenie version: " DIPGENIE_VERSION "\n";return 0;}
         if(key=="-r1"||key=="-r2"||key=="-h1"||key=="-h2")key="-"+key;
         if(!flags.count(key)&&!values.count(key))throw std::invalid_argument("Unknown option: "+key);
         std::string value="1";
