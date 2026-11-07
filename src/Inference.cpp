@@ -401,7 +401,8 @@ int hic::infer_component(std::map<std::string,std::string> args, std::vector<Rea
     for(size_t b=0;b<result.path.size();++b){const int z=result.path[b];
         if(fixed_pairs[b]!=std::min(z/m.H,z%m.H)*m.H+std::max(z/m.H,z%m.H))throw std::logic_error("Orientation stage changed a donor pair");}
     next_stage("phase_reporting_reconstruction_and_certificates");
-    // phred 30 is HapCUT2's default variant-pruning threshold (fixed, not fitted).
+    // Phase threshold: phred 30 (1000:1 odds), chosen empirically; HapCUT2's
+    // default pruning threshold is a posterior of 0.8 (about phred 7).
     site_threshold=30.0*std::log(10.0)/10.0;
     if(nats_per_unit>0) {
         std::vector<unsigned char> presence(m.targets.size());
