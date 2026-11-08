@@ -135,17 +135,20 @@ placement and linkage weights.
 - **VG**: KMC k=29 counts of the SR reads, `vg haplotypes --diploid-sampling`,
   then the same caller (`call_fasta`) on the two sampled haplotypes.
 - **PanGenie**: `PanGenie -s HG002` on the SR reads (its own genotyping VCF).
-- **HapCUT2 v1.3.4** at its documented settings, identical for both tools:
+- **HapCUT2 v1.3.4**, identical settings for both tools:
   - calls are split with `bcftools norm -m -any`, non-reference GTs are kept, and
     records are re-sorted (`bcftools sort`; left-alignment can move long deletions);
   - Hi-C read pairs are aligned with bwa-mem2 `-5SPM`, SR pairs with bwa-mem2;
   - fragments: `extractHAIRS --hic 1` (Hi-C) and `extractHAIRS --nf 1` (SR),
-    concatenated;
+    both with `--indels 1 --ref`, concatenated. HapCUT2's default (`--indels 0`)
+    extracts no indel alleles and leaves every indel unphased; the haplotype-level
+    evaluation (yak, Section 6) scores indel-spanning 31-mers, so indels are phased
+    for a like-for-like comparison with DipGenie v2, which phases all of its calls;
   - `HAPCUT2 --hic 1`, converted to a phased VCF with
     [hapcut2_vcf.py](05_baselines/hapcut2_vcf.py). Genotypes are never changed.
 - **SR only** (same script, written to `runs/<tool>-HapCUT2-SR-<depth>/`): the same
-  normalised calls, phased by HapCUT2 from the SR alignment alone with its basic
-  defaults (`extractHAIRS --bam --VCF --out`, `HAPCUT2 --fragments --VCF --output`).
+  normalised calls, phased by HapCUT2 from the SR alignment alone
+  (`extractHAIRS --indels 1 --ref --bam --VCF --out`, `HAPCUT2 --fragments --VCF --output`).
   Genotypes, and therefore SNP/SV accuracy, equal the SR + Hi-C run; only phasing differs.
 
 ## 6. Evaluation
@@ -158,7 +161,8 @@ placement and linkage weights.
 - **SVs (>= 50 bp)**: Truvari 5.5.0 against v5.0q structural variants.
 - **Phasing** ([phasing.sh](06_evaluation/phasing.sh)), as for haplotype-resolved
   assemblies (hifiasm): the two haplotypes of each call set are built with
-  `bcftools consensus -H 1/-H 2` on CHM13 chr1, with bases outside the
+  `bcftools consensus -H 1/-H 2` on CHM13 chr1 (a heterozygous call left unphased is
+  placed with its first allele on haplotype 1), with bases outside the
   small-variant benchmark regions masked to N, and `yak trioeval -c1 -d1`
   classifies their 31-mers against the maternal and paternal chr1 of the HG002
   Q100 v1.1 assembly (`yak count` on each; every k-mer occurs once, hence

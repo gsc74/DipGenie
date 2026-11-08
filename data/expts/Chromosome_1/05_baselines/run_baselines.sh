@@ -5,12 +5,14 @@
 # Genotyping: VG = KMC k-mer counts + vg haplotypes --diploid-sampling + call_fasta (the in-process
 #             dipcall v0.3 stages of DipGenie: minimap2 v2.31, HTSbox r352);
 #             PanGenie = PanGenie v4.2.2 on the uncompressed concatenated SR mates.
-# Phasing (HapCUT2 v1.3.4, documented defaults): calls normalised identically
+# Phasing (HapCUT2 v1.3.4): calls normalised identically
 # (bcftools norm -m -any, non-reference GTs, bcftools sort); Hi-C fragments from extractHAIRS --hic 1 on a
-# bwa-mem2 -5SPM alignment; SR fragments from extractHAIRS --nf 1 on a bwa-mem2 alignment;
+# bwa-mem2 -5SPM alignment; SR fragments from extractHAIRS --nf 1 on a bwa-mem2 alignment; every
+# extractHAIRS call uses --indels 1 --ref, so reads also carry indel alleles (HapCUT2's default,
+# --indels 0, leaves every indel unphased, and the haplotype-level evaluation would then place them arbitrarily);
 # fragments concatenated and assembled with HAPCUT2 --hic 1. Genotypes are never changed.
 # SR-only output (appendix): the same normalised calls phased by HapCUT2 from the SR alignment
-# alone with its basic defaults (extractHAIRS --bam --VCF --out; HAPCUT2 --fragments --VCF --output),
+# alone (extractHAIRS --indels 1 --ref --bam --VCF --out; HAPCUT2 --fragments --VCF --output),
 # written to $WORK/runs/<method>-HapCUT2-SR-<depth>.
 set -Eeuo pipefail
 source "${CONFIG:?export CONFIG=/path/to/config.sh (copy of config.example.sh)}"
@@ -58,8 +60,8 @@ for d in "${depths[@]}"; do
       "$st" view -@16 -b -o "$bam" "$out/$lib.md.bam" chr1 && "$st" index "$bam"
       rm -f "$out/$lib.sorted.bam" "$out/$lib.md.bam" "$out/$lib.md.bam.bai"
     done
-    timed fragments-HiC "$HAPCUT2_DIR/extractHAIRS" --hic 1 --bam "$out/hic.chr1.bam" --VCF "$out/calls.unphased.vcf" --out "$out/hic.fragments" > "$out/extracthairs.hic.log" 2>&1
-    timed fragments-SR "$HAPCUT2_DIR/extractHAIRS" --nf 1 --bam "$out/sr.chr1.bam" --VCF "$out/calls.unphased.vcf" --out "$out/sr.fragments" > "$out/extracthairs.sr.log" 2>&1
+    timed fragments-HiC "$HAPCUT2_DIR/extractHAIRS" --hic 1 --indels 1 --ref "$evalref" --bam "$out/hic.chr1.bam" --VCF "$out/calls.unphased.vcf" --out "$out/hic.fragments" > "$out/extracthairs.hic.log" 2>&1
+    timed fragments-SR "$HAPCUT2_DIR/extractHAIRS" --nf 1 --indels 1 --ref "$evalref" --bam "$out/sr.chr1.bam" --VCF "$out/calls.unphased.vcf" --out "$out/sr.fragments" > "$out/extracthairs.sr.log" 2>&1
     cat "$out/sr.fragments" "$out/hic.fragments" > "$out/all.fragments"
     timed phasing "$HAPCUT2_DIR/HAPCUT2" --hic 1 --fragments "$out/all.fragments" --VCF "$out/calls.unphased.vcf" \
       --output "$out/hapcut2.haplotype" --outvcf 1 > "$out/hapcut2.log" 2>&1
@@ -76,7 +78,7 @@ for d in "${depths[@]}"; do
     test -f "$src/COMPLETE"
     timed() { local n=$1; shift; /usr/bin/time -v -o "$out/$n.time" "$@"; }
     cp "$src/calls.unphased.vcf" "$out/calls.unphased.vcf"
-    timed fragments "$HAPCUT2_DIR/extractHAIRS" --bam "$src/sr.chr1.bam" --VCF "$out/calls.unphased.vcf" --out "$out/sr.fragments" > "$out/extracthairs.sr.log" 2>&1
+    timed fragments "$HAPCUT2_DIR/extractHAIRS" --indels 1 --ref "$evalref" --bam "$src/sr.chr1.bam" --VCF "$out/calls.unphased.vcf" --out "$out/sr.fragments" > "$out/extracthairs.sr.log" 2>&1
     timed phasing "$HAPCUT2_DIR/HAPCUT2" --fragments "$out/sr.fragments" --VCF "$out/calls.unphased.vcf" \
       --output "$out/hapcut2.haplotype" --outvcf 1 > "$out/hapcut2.log" 2>&1
     "$PYTHON" "$here/hapcut2_vcf.py" "$out/calls.unphased.vcf" "$out/hapcut2.haplotype.phased.VCF" "$out/calls.vcf" > "$out/phase-conversion.json"
