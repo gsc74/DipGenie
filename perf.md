@@ -18,7 +18,7 @@ Best value per depth in bold.
 
 ## Accuracy, short reads + Hi-C
 
-DipGenie v2 has the lowest switch and Hamming error rates up to 32× and orients the phase blocks along the chromosome from 8× (Hamming error 11.2%), a level the pipelines reach only at 32×; with all reads, VG+HapCUT2 phases comparably. DipGenie v2 has the highest SV F1 at every depth and the highest SNP F1 up to 8×.
+DipGenie v2 has the lowest switch and Hamming error rates up to 32× and orients the phase blocks along the chromosome from 8× (Hamming error 11.2%), a level the pipelines reach only at 32×; with all reads, VG+HapCUT2 phases comparably. DipGenie v2 has the highest SV F1 at every depth and the highest SNP F1 up to 8×; from 16×, both pipelines reach a higher SNP F1.
 
 | Depth | Method | SNP F1 | SV F1 | Switch error (%) | Hamming error (%) |
 |:--|:--|--:|--:|--:|--:|
