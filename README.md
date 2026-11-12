@@ -91,7 +91,7 @@ DipGenie implements Frequency-aware Diploid Path Inference (FDPI). A joint dynam
 
 
 ## <a name="results"></a>Results
-We evaluated DipGenie v2 on chromosome 1 of HG002 with the HPRC release 2 panel (HG002 left out), using Illumina short reads and Hi-C reads at six depths per library (2× to 58.7× short reads and to 56.2× Hi-C), against VG and PanGenie genotypes phased by HapCUT2 (indels included, `extractHAIRS --indels 1`).
+We evaluated DipGenie v2 on chromosome 1 of HG002 with the HPRC release 2 panel (HG002 left out), using Illumina short reads and Hi-C reads at six coverage levels for each read type (2× to 58.7× for short reads and to 56.2× for Hi-C), against VG and PanGenie genotypes phased by HapCUT2 (indels included, `extractHAIRS --indels 1`).
 
 **Accuracy.** With short reads and Hi-C, DipGenie v2 has the lowest switch and Hamming error rates up to 32× and orients the phase blocks along the chromosome from 8× (Hamming error 11.2%, against 37.5–45.3% for the pipelines), a level the pipelines reach only at 32× (6.6–7.8%); with all reads, VG+HapCUT2 phases comparably (switch 5.6% and Hamming 4.6%, against 5.6% and 4.7%). DipGenie v2 has the highest SV F1 at every depth and the highest SNP F1 up to 8×; from 16×, both pipelines reach a higher SNP F1. With short reads only, it keeps the lowest switch error rate (at least 2.7 times lower than either pipeline) and the highest SV F1 at every depth, but no method orients the phase blocks along the chromosome.
 
